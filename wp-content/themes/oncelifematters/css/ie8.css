@@ -1,0 +1,10 @@
+footer #get-connected .connection {
+	background-image: url(../images/connect-bg.png);
+	background-color: #000;
+}
+
+footer #get-connected .connection:hover
+{
+	background-image: url(../images/connect-bg-yellow.png);
+	background-color: #000;
+}
