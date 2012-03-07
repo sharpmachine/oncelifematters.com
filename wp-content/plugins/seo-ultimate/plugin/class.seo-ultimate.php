@@ -180,6 +180,7 @@ class SEO_Ultimate {
 		/********** ACTION & FILTER HOOKS **********/
 		
 		//Initializes modules at WordPress initialization
+		add_action('init', array(&$this, 'load_textdomain'), 0); //Run before widgets_init hook (wp-includes/default-widgets.php)
 		add_action('init', array(&$this, 'init'));
 		
 		//Hook to output all <head> code
@@ -572,9 +573,20 @@ class SEO_Ultimate {
 		$this->remove_cron_jobs();
 		
 		//Tell the modules what their plugin page hooks are
-		foreach ($this->modules as $key => $module)
-			$this->modules[$key]->plugin_page_hook =
-				$this->modules[$key]->get_menu_parent_hook().'_page_'.$this->key_to_hook($this->modules[$key]->get_module_or_parent_key());
+		foreach ($this->modules as $key => $module) {
+			$menu_parent_hook = $this->modules[$key]->get_menu_parent_hook();
+			
+			if ($this->modules[$key]->is_menu_default())
+				$this->modules[$key]->plugin_page_hook = $plugin_page_hook = "toplevel_page_$menu_parent_hook";
+			elseif ('options-general.php' == $menu_parent_hook)
+				$this->modules[$key]->plugin_page_hook = $plugin_page_hook = 'settings_page_' .
+					$this->key_to_hook($this->modules[$key]->get_module_or_parent_key());
+			else
+				$this->modules[$key]->plugin_page_hook = $plugin_page_hook = $menu_parent_hook . '_page_' .
+					$this->key_to_hook($this->modules[$key]->get_module_or_parent_key());
+			
+			add_action("load-$plugin_page_hook", array($this->modules[$key], 'load_hook'));
+		}
 		
 		if (!$this->module_exists($this->default_menu_module)) {
 			foreach ($this->modules as $key => $module) {
@@ -597,9 +609,6 @@ class SEO_Ultimate {
 	 */
 	function init() {
 		
-		//Allow translation of this plugin
-		load_plugin_textdomain('seo-ultimate', '', plugin_basename($this->plugin_dir_path));
-		
 		//Load default module settings and run modules' init tasks
 		foreach ($this->modules as $key => $module) {
 			//Accessing $module directly causes problems when the modules use the &$this reference
@@ -615,6 +624,13 @@ class SEO_Ultimate {
 				$this->modules[$key]->upgrade();
 			$this->modules[$key]->init();
 		}
+	}
+	
+	/**
+	 * @since 6.9.7
+	 */
+	function load_textdomain() {
+		load_plugin_textdomain('seo-ultimate', '', trailingslashit(plugin_basename($this->plugin_dir_path)) . 'translations');
 	}
 	
 	/**
@@ -1153,6 +1169,8 @@ class SEO_Ultimate {
 			, 'Bugfix' => 'bugfix'
 			, 'Improvement' => 'improvement'
 			, 'Security Fix' => 'security'
+			, 'New Translation' => 'new-lang'
+			, 'Updated Translation' => 'updated-lang'
 		);
 		
 		$change_labels = array(
@@ -1161,6 +1179,8 @@ class SEO_Ultimate {
 			, 'bugfix'      => array(__('bugfix', 'seo-ultimate'), __('bugfixes', 'seo-ultimate'))
 			, 'improvement' => array(__('improvement', 'seo-ultimate'), __('improvements', 'seo-ultimate'))
 			, 'security'    => array(__('security fix', 'seo-ultimate'), __('security fixes', 'seo-ultimate'))
+			, 'new-lang'    => array(__('new language pack', 'seo-ultimate'), __('new language packs', 'seo-ultimate'))
+			, 'updated-lang'=> array(__('language pack update', 'seo-ultimate'), __('language pack updates', 'seo-ultimate'))
 		);
 		
 		$changes = array();
@@ -1630,35 +1650,6 @@ class SEO_Ultimate {
 		return $this->plugin_dir_path.'readme.txt';
 	}
 	
-	/**
-	 * Returns the full server path to the main documentation.txt file.
-	 * 
-	 * @since 2.7
-	 * @return string
-	 */
-	function get_mdoc_path() {
-		return $this->plugin_dir_path.'modules/documentation.txt';
-	}
-	
-	/**
-	 * Returns the full server path to the main documentation.txt file, or a translated documentation.txt file if it exists for the current WPLANG.
-	 * 
-	 * @since 2.7
-	 * @return string
-	 */
-	function get_translated_mdoc_path() {
-		if (defined('WPLANG') && strlen(WPLANG)) {
-			$wplang = sustr::preg_filter('a-zA-Z0-9_', WPLANG);
-			$langvars = array($wplang, array_shift(explode('_', $wplang)));
-			foreach ($langvars as $langvar) {
-				$path = $this->plugin_dir_path."translations/documentation-$langvar.txt";
-				if (is_readable($path)) return $path;
-			}
-		}
-		
-		return $this->plugin_dir_path.'modules/documentation.txt';
-	}
-	
 	/********** JLSUGGEST **********/
 	
 	/**
@@ -1680,59 +1671,63 @@ class SEO_Ultimate {
 			$items[] = array('text' => __('Blog Homepage', 'seo-ultimate'), 'value' => 'obj_home', 'selectedtext' => __('Blog Homepage', 'seo-ultimate'));
 		}
 		
-		$posttypeobjs = suwp::get_post_type_objects();
-		foreach ($posttypeobjs as $posttypeobj) {
-			
-			if ($include && !in_array('posttype_' . $posttypeobj->name, $include) && !in_array('post', $include))
-				continue;
-			
-			$stati = get_available_post_statuses($posttypeobj->name);
-			suarr::remove_value($stati, 'auto-draft');
-			$stati = implode(',', $stati);
-			
-			$posts = get_posts(array(
-				  'orderby' => 'title'
-				, 'order' => 'ASC'
-				, 'post_status' => $stati
-				, 'numberposts' => -1
-				, 'post_type' => $posttypeobj->name
-				, 'sentence' => 1
-				, 's' => $_GET['q']
-			));
-			
-			if (count($posts)) {
+		if (!$include || in_array('posttype', $include)) {
+			$posttypeobjs = suwp::get_post_type_objects();
+			foreach ($posttypeobjs as $posttypeobj) {
 				
-				$items[] = array('text' => $posttypeobj->labels->name, 'isheader' => true);
+				if ($include && !in_array('posttype_' . $posttypeobj->name, $include))
+					continue;
 				
-				foreach ($posts as $post)
-					$items[] = array(
-						  'text' => $post->post_title
-						, 'value' => 'obj_posttype_' . $posttypeobj->name . '/' . $post->ID
-						, 'selectedtext' => $post->post_title . '<span class="type">&nbsp;&mdash;&nbsp;'.$posttypeobj->labels->singular_name.'</span>'
-					);
+				$stati = get_available_post_statuses($posttypeobj->name);
+				suarr::remove_value($stati, 'auto-draft');
+				$stati = implode(',', $stati);
+				
+				$posts = get_posts(array(
+					  'orderby' => 'title'
+					, 'order' => 'ASC'
+					, 'post_status' => $stati
+					, 'numberposts' => -1
+					, 'post_type' => $posttypeobj->name
+					, 'sentence' => 1
+					, 's' => $_GET['q']
+				));
+				
+				if (count($posts)) {
+					
+					$items[] = array('text' => $posttypeobj->labels->name, 'isheader' => true);
+					
+					foreach ($posts as $post)
+						$items[] = array(
+							  'text' => $post->post_title
+							, 'value' => 'obj_posttype_' . $posttypeobj->name . '/' . $post->ID
+							, 'selectedtext' => $post->post_title . '<span class="type">&nbsp;&mdash;&nbsp;'.$posttypeobj->labels->singular_name.'</span>'
+						);
+				}
 			}
 		}
 		
-		$taxonomyobjs = suwp::get_taxonomies();
-		foreach ($taxonomyobjs as $taxonomyobj) {
-			
-			if ($include && !in_array('taxonomy_' . $posttypeobj->name, $include) && !in_array('taxonomy', $include))
-				continue;
-			
-			$terms = get_terms($taxonomyobj->name, array(
-				'search' => $_GET['q'] //NOTE: get_terms does NOT sanitize the "search" variable for SQL queries prior to WordPress 3.1.3, which is why this plugin will refuse to run on versions prior to 3.1.3
-			));
-			
-			if (count($terms)) {
+		if (!$include || in_array('taxonomy', $include)) {
+			$taxonomyobjs = suwp::get_taxonomies();
+			foreach ($taxonomyobjs as $taxonomyobj) {
 				
-				$items[] = array('text' => $taxonomyobj->labels->name, 'isheader' => true);
+				if ($include && !in_array('taxonomy_' . $posttypeobj->name, $include))
+					continue;
 				
-				foreach ($terms as $term)
-					$items[] = array(
-						  'text' => $term->name
-						, 'value' => 'obj_taxonomy_' . $taxonomyobj->name . '/' . $term->term_id
-						, 'selectedtext' => $term->name . '<span class="type"> &mdash; '.$taxonomyobj->labels->singular_name.'</span>'
-					);
+				$terms = get_terms($taxonomyobj->name, array(
+					'search' => $_GET['q'] //NOTE: get_terms does NOT sanitize the "search" variable for SQL queries prior to WordPress 3.1.3, which is why this plugin will refuse to run on versions prior to 3.1.3
+				));
+				
+				if (count($terms)) {
+					
+					$items[] = array('text' => $taxonomyobj->labels->name, 'isheader' => true);
+					
+					foreach ($terms as $term)
+						$items[] = array(
+							  'text' => $term->name
+							, 'value' => 'obj_taxonomy_' . $taxonomyobj->name . '/' . $term->term_id
+							, 'selectedtext' => $term->name . '<span class="type"> &mdash; '.$taxonomyobj->labels->singular_name.'</span>'
+						);
+				}
 			}
 		}
 		
@@ -1753,6 +1748,40 @@ class SEO_Ultimate {
 						, 'value' => 'obj_author/' . $author->ID
 						, 'selectedtext' => $author->user_login . '<span class="type"> &mdash; '.__('Author', 'seo-ultimate').'</span>'
 					);
+			}
+		}
+		
+		if ($this->module_exists('internal-link-aliases') && (!$include || in_array('internal-link-alias', $include))) {
+			
+			$aliases = $this->get_setting('aliases', array(), 'internal-link-aliases');
+			$alias_dir = $this->get_setting('alias_dir', 'go', 'internal-link-aliases');
+			
+			if (is_array($aliases) && count($aliases)) {
+				
+				$header_outputted = false;
+				foreach ($aliases as $alias_id => $alias) {
+					
+					if ($alias['to']) {
+						
+						$h_alias_to = su_esc_html($alias['to']);
+						$to_rel_url = "/$alias_dir/$h_alias_to/";
+						
+						if ((strpos($alias['from'], $_GET['q']) !== false) || (strpos($to_rel_url, $_GET['q']) !== false)) {
+							
+							if (!$header_outputted) {
+								$items[] = array('text' => __('Link Masks', 'seo-ultimate'), 'isheader' => true);
+								$header_outputted = true;
+							}
+							
+							$items[] = array(
+								  'text' => $to_rel_url
+								, 'value' => 'obj_internal-link-alias/' . $alias_id
+								, 'selectedtext' => $to_rel_url . '<span class="type"> &mdash; '.__('Link Mask', 'seo-ultimate').'</span>'
+							);
+							
+						}
+					}
+				}
 			}
 		}
 		
