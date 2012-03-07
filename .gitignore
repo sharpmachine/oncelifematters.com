@@ -3,4 +3,9 @@ wp-config.php
 /wp-content/themes/oncelifematters/js/hashgrid.js
 /wp-content/themes/oncelifematters/css/hashgrid.css
 /wp-content/themes/oncelifematters/css/style.less
+/wp-content/uploads/_wpremote_backups/
+/wp-content/w3tc/
+/wp-content/backup-db/
 .htaccess
+sitemap.xml
+sitemap.xml.gz
