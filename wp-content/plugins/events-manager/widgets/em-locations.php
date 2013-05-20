@@ -14,7 +14,7 @@ class EM_Locations_Widget extends WP_Widget {
     		'scope' => 'future',
     		'order' => 'ASC',
     		'limit' => 5,
-    		'format' => '#_LOCATIONLINK<ul><li>#_ADDRESS</li><li>#_TOWN</li></ul>',
+    		'format' => '#_LOCATIONLINK<ul><li>#_LOCATIONADDRESS</li><li>#_LOCATIONTOWN</li></ul>',
     		'orderby' => 'event_start_date,event_start_time,location_name'
     	);
     	$this->em_orderby_options = array(
@@ -27,11 +27,14 @@ class EM_Locations_Widget extends WP_Widget {
 
     /** @see WP_Widget::widget */
     function widget($args, $instance) {	
-    	$instance = array_merge($this->defaults, $instance);	
+    	$instance = array_merge($this->defaults, $instance);
+
     	echo $args['before_widget'];
-	    echo $args['before_title'];
-	    echo $instance['title'];
-	    echo $args['after_title'];
+    	if( !empty($instance['title']) ){
+		    echo $args['before_title'];
+		    echo apply_filters('widget_title',$instance['title'], $instance, $this->id_base);
+		    echo $args['after_title'];
+    	}
 	    
 		$instance['owner'] = false;
 		$locations = EM_Locations::get(apply_filters('em_widget_locations_get_args',$instance));
@@ -57,7 +60,7 @@ class EM_Locations_Widget extends WP_Widget {
     function update($new_instance, $old_instance) {
     	//filter the new instance and replace blanks with defaults
     	foreach($this->defaults as $key => $value){
-    		if( empty($new_instance[$key]) ){
+    		if( !isset($new_instance[$key]) ){
     			$new_instance[$key] = $value;
     		}
     	}

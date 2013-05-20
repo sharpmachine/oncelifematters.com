@@ -14,17 +14,19 @@ define('EM_TAXONOMY_TAG_SLUG', get_option('dbem_taxonomy_tag_slug', 'events/tags
  * This checks that you have post thumbnails enabled, if not, it enables it. 
  * You can always disable this by adding remove_action('after_setup_theme','wp_events_plugin_after_setup_theme'); in your functions.php theme file.
  */
-add_action('after_setup_theme','wp_events_plugin_after_setup_theme');
+add_action('after_setup_theme','wp_events_plugin_after_setup_theme',100);
 function wp_events_plugin_after_setup_theme(){
 	if( !get_option('disable_post_thumbnails') && function_exists('add_theme_support') ){
 		global $_wp_theme_features;
 		if( !empty($_wp_theme_features['post-thumbnails']) ){
 			//either leave as true, or add our cpts to this
 			if( is_array($_wp_theme_features['post-thumbnails']) ){
+				$post_thumbnails = array_shift($_wp_theme_features['post-thumbnails']);
 				//add to featured image post types for specific themes
-				$_wp_theme_features['post-thumbnails'][] = EM_POST_TYPE_EVENT;
-				$_wp_theme_features['post-thumbnails'][] = EM_POST_TYPE_LOCATION;
-				add_theme_support('post-thumbnails', $_wp_theme_features['post-thumbnails']);
+				$post_thumbnails[] = EM_POST_TYPE_EVENT;
+				$post_thumbnails[] = 'event-recurring';
+				$post_thumbnails[] = EM_POST_TYPE_LOCATION;
+				add_theme_support('post-thumbnails', $post_thumbnails);
 			}
 		}else{
 			add_theme_support('post-thumbnails'); //need to add this for themes that don't have it. 
@@ -118,7 +120,7 @@ function wp_events_plugin_init(){
 		'exclude_from_search' => false,
 		'publicly_queryable' => true,
 		'rewrite' => array('slug' => EM_POST_TYPE_EVENT_SLUG,'with_front'=>false),
-		'has_archive' => get_option('dbem_cp_events_has_archive', false) == true && get_option('dbem_events_page') == 0,
+		'has_archive' => get_option('dbem_cp_events_has_archive', false) == true,
 		'supports' => apply_filters('em_cp_event_supports', array('custom-fields','title','editor','excerpt','comments','thumbnail','author')),
 		'capability_type' => 'event',
 		'capabilities' => array(
@@ -150,12 +152,14 @@ function wp_events_plugin_init(){
 			'not_found_in_trash' => __('No Events Found in Trash','dbem'),
 			'parent' => __('Parent Event','dbem'),
 		),
-		'menu_icon' => plugins_url('includes/images/calendar-16.png', __FILE__)
+		'menu_icon' => plugins_url('includes/images/calendar-16.png', __FILE__),
+		'yarpp_support'=>true
 	);
 	if ( get_option('dbem_recurrence_enabled') ){
 		$event_recurring_post_type = array(	
 			'public' => apply_filters('em_cp_event_recurring_public', false),
 			'show_ui' => true,
+			'show_in_admin_bar' => true,
 			'show_in_menu' => 'edit.php?post_type='.EM_POST_TYPE_EVENT,
 			'show_in_nav_menus'=>false,
 			'publicly_queryable' => apply_filters('em_cp_event_recurring_publicly_queryable', false),
@@ -201,6 +205,8 @@ function wp_events_plugin_init(){
 		$location_post_type = array(	
 			'public' => true,
 			'hierarchical' => false,
+			'show_in_admin_bar' => true,
+			//if in MS Global mode with locations shown on main blog, then the ui shouldn't be available on network blogs:
 			'show_ui' => !(EM_MS_GLOBAL && !is_main_site() && get_site_option('dbem_ms_mainblog_locations')),
 			'show_in_menu' => 'edit.php?post_type='.EM_POST_TYPE_EVENT,
 			'show_in_nav_menus'=>true,
@@ -240,7 +246,8 @@ function wp_events_plugin_init(){
 				'not_found' => __('No Locations Found','dbem'),
 				'not_found_in_trash' => __('No Locations Found in Trash','dbem'),
 				'parent' => __('Parent Location','dbem'),
-			)
+			),
+			'yarpp_support'=>true
 		);
 	}
 	if( strstr(EM_POST_TYPE_EVENT_SLUG, EM_POST_TYPE_LOCATION_SLUG) !== FALSE ){
@@ -291,94 +298,96 @@ function supported_custom_fields($supported, $remove = array()){
 }
 
 function em_map_meta_cap( $caps, $cap, $user_id, $args ) {
-	/* Handle event reads */
-	if ( 'edit_event' == $cap || 'delete_event' == $cap || 'read_event' == $cap ) {
-		$EM_Event = em_get_event($args[0],'post_id');
-		$post_type = get_post_type_object( $EM_Event->post_type );
-		/* Set an empty array for the caps. */
-		$caps = array();
-		//Filter according to event caps
-		switch( $cap ){
-			case 'read_event':
-				if ( 'private' != $EM_Event->post_status )
-					$caps[] = 'read';
-				elseif ( $user_id == $EM_Event->event_owner )
-					$caps[] = 'read';
-				else
-					$caps[] = $post_type->cap->read_private_posts;
-				break;
-			case 'edit_event':
-				if ( $user_id == $EM_Event->event_owner )
-					$caps[] = $post_type->cap->edit_posts;
-				else
-					$caps[] = $post_type->cap->edit_others_posts;
-				break;
-			case 'delete_event':
-				if ( $user_id == $EM_Event->event_owner )
-					$caps[] = $post_type->cap->delete_posts;
-				else
-					$caps[] = $post_type->cap->delete_others_posts;
-				break;
+    if( !empty( $args[0]) ){
+		/* Handle event reads */
+		if ( 'edit_event' == $cap || 'delete_event' == $cap || 'read_event' == $cap ) {
+			$EM_Event = em_get_event($args[0],'post_id');
+			$post_type = get_post_type_object( $EM_Event->post_type );
+			/* Set an empty array for the caps. */
+			$caps = array();
+			//Filter according to event caps
+			switch( $cap ){
+				case 'read_event':
+					if ( 'private' != $EM_Event->post_status )
+						$caps[] = 'read';
+					elseif ( $user_id == $EM_Event->event_owner )
+						$caps[] = 'read';
+					else
+						$caps[] = $post_type->cap->read_private_posts;
+					break;
+				case 'edit_event':
+					if ( $user_id == $EM_Event->event_owner )
+						$caps[] = $post_type->cap->edit_posts;
+					else
+						$caps[] = $post_type->cap->edit_others_posts;
+					break;
+				case 'delete_event':
+					if ( $user_id == $EM_Event->event_owner )
+						$caps[] = $post_type->cap->delete_posts;
+					else
+						$caps[] = $post_type->cap->delete_others_posts;
+					break;
+			}
 		}
-	}
-	if ( 'edit_recurring_event' == $cap || 'delete_recurring_event' == $cap || 'read_recurring_event' == $cap ) {
-		$EM_Event = em_get_event($args[0],'post_id');
-		$post_type = get_post_type_object( $EM_Event->post_type );
-		/* Set an empty array for the caps. */
-		$caps = array();
-		//Filter according to recurring_event caps
-		switch( $cap ){
-			case 'read_recurring_event':
-				if ( 'private' != $EM_Event->post_status )
-					$caps[] = 'read';
-				elseif ( $user_id == $EM_Event->event_owner )
-					$caps[] = 'read';
-				else
-					$caps[] = $post_type->cap->read_private_posts;
-				break;
-			case 'edit_recurring_event':
-				if ( $user_id == $EM_Event->event_owner )
-					$caps[] = $post_type->cap->edit_posts;
-				else
-					$caps[] = $post_type->cap->edit_others_posts;
-				break;
-			case 'delete_recurring_event':
-				if ( $user_id == $EM_Event->event_owner )
-					$caps[] = $post_type->cap->delete_posts;
-				else
-					$caps[] = $post_type->cap->delete_others_posts;
-				break;
+		if ( 'edit_recurring_event' == $cap || 'delete_recurring_event' == $cap || 'read_recurring_event' == $cap ) {
+			$EM_Event = em_get_event($args[0],'post_id');
+			$post_type = get_post_type_object( $EM_Event->post_type );
+			/* Set an empty array for the caps. */
+			$caps = array();
+			//Filter according to recurring_event caps
+			switch( $cap ){
+				case 'read_recurring_event':
+					if ( 'private' != $EM_Event->post_status )
+						$caps[] = 'read';
+					elseif ( $user_id == $EM_Event->event_owner )
+						$caps[] = 'read';
+					else
+						$caps[] = $post_type->cap->read_private_posts;
+					break;
+				case 'edit_recurring_event':
+					if ( $user_id == $EM_Event->event_owner )
+						$caps[] = $post_type->cap->edit_posts;
+					else
+						$caps[] = $post_type->cap->edit_others_posts;
+					break;
+				case 'delete_recurring_event':
+					if ( $user_id == $EM_Event->event_owner )
+						$caps[] = $post_type->cap->delete_posts;
+					else
+						$caps[] = $post_type->cap->delete_others_posts;
+					break;
+			}
 		}
-	}
-	if ( 'edit_location' == $cap || 'delete_location' == $cap || 'read_location' == $cap ) {
-		$EM_Location = em_get_location($args[0],'post_id');
-		$post_type = get_post_type_object( $EM_Location->post_type );
-		/* Set an empty array for the caps. */
-		$caps = array();
-		//Filter according to location caps
-		switch( $cap ){
-			case 'read_location':
-				if ( 'private' != $EM_Location->post_status )
-					$caps[] = 'read';
-				elseif ( $user_id == $EM_Location->location_owner )
-					$caps[] = 'read';
-				else
-					$caps[] = $post_type->cap->read_private_posts;
-				break;
-			case 'edit_location':
-				if ( $user_id == $EM_Location->location_owner )
-					$caps[] = $post_type->cap->edit_posts;
-				else
-					$caps[] = $post_type->cap->edit_others_posts;
-				break;
-			case 'delete_location':
-				if ( $user_id == $EM_Location->location_owner )
-					$caps[] = $post_type->cap->delete_posts;
-				else
-					$caps[] = $post_type->cap->delete_others_posts;
-				break;
+		if ( 'edit_location' == $cap || 'delete_location' == $cap || 'read_location' == $cap ) {
+			$EM_Location = em_get_location($args[0],'post_id');
+			$post_type = get_post_type_object( $EM_Location->post_type );
+			/* Set an empty array for the caps. */
+			$caps = array();
+			//Filter according to location caps
+			switch( $cap ){
+				case 'read_location':
+					if ( 'private' != $EM_Location->post_status )
+						$caps[] = 'read';
+					elseif ( $user_id == $EM_Location->location_owner )
+						$caps[] = 'read';
+					else
+						$caps[] = $post_type->cap->read_private_posts;
+					break;
+				case 'edit_location':
+					if ( $user_id == $EM_Location->location_owner )
+						$caps[] = $post_type->cap->edit_posts;
+					else
+						$caps[] = $post_type->cap->edit_others_posts;
+					break;
+				case 'delete_location':
+					if ( $user_id == $EM_Location->location_owner )
+						$caps[] = $post_type->cap->delete_posts;
+					else
+						$caps[] = $post_type->cap->delete_others_posts;
+					break;
+			}
 		}
-	}
+    }
 	/* Return the capabilities required by the user. */
 	return $caps;
 }

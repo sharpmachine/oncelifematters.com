@@ -29,10 +29,11 @@ class EM_Object {
 			'category' => 0,
 			'tag' => 0,
 			'location' => 0,
-			'event' => 0, 
+			'event' => false, 
 			'offset'=>0,
 			'page'=>1,//basically, if greater than 0, calculates offset at end
 			'recurrence'=>0,
+			'recurrences'=>null,
 			'recurring'=>false,
 			'month'=>'',
 			'year'=>'',
@@ -57,7 +58,10 @@ class EM_Object {
 			if( array_key_exists('category_id', $array) && !array_key_exists('category', $array) ) { $array['category'] = $array['category_id']; }
 		
 			//Clean all id lists
-			$array = self::clean_id_atts($array, array('location', 'event', 'category', 'tag', 'post_id'));
+			$array = self::clean_id_atts($array, array('location', 'event', 'category', 'post_id'));
+			if( !empty($array['tag']) && !is_array($array['tag']) && strstr($array['tag'],',') !== false ){ //accepts numbers or words
+				$array['tag'] = explode(',',$array['tag']);
+			}
 			
 			//OrderBy - can be a comma-seperated array of field names to order by (field names of object, not db)
 			if( array_key_exists('orderby', $array)){
@@ -72,7 +76,6 @@ class EM_Object {
 			}
 			//return clean array
 			$defaults = array_merge ( $defaults, $array ); //No point using WP's cleaning function, we're doing it already.
-			
 		}
 		
 		//Do some spring cleaning for known values
@@ -149,6 +152,7 @@ class EM_Object {
 		$scope = $args['scope'];//undefined variable warnings in ZDE, could just delete this (but dont pls!)
 		$recurring = $args['recurring'];
 		$recurrence = $args['recurrence'];
+		$recurrences = $args['recurrences'];
 		$category = $args['category'];
 		$tag = $args['tag'];
 		$location = $args['location'];
@@ -168,6 +172,9 @@ class EM_Object {
 		}elseif( $recurrence > 0 ){
 			$conditions['recurrence'] = "`recurrence_id`=$recurrence";
 		}else{
+		    if( $recurrences !== null ){
+		    	$conditions['recurrences'] = $recurrences ? "(`recurrence_id` > 0 )":"(`recurrence_id` IS NULL OR `recurrence_id`=0 )";
+		    }
 			$conditions['recurring'] = "(`recurrence`!=1 OR `recurrence` IS NULL)";			
 		}
 		//Dates - first check 'month', and 'year', and adjust scope if needed
@@ -212,11 +219,20 @@ class EM_Object {
 				}
 			}else{
 				//date range
-				$conditions['scope'] = " ( ( event_start_date <= CAST('$date_end' AS DATE) AND event_end_date >= CAST('$date_start' AS DATE) ) OR (event_start_date BETWEEN CAST('$date_start' AS DATE) AND CAST('$date_end' AS DATE)) OR (event_end_date BETWEEN CAST('$date_start' AS DATE) AND CAST('$date_end' AS DATE)) )";
+				if( get_option('dbem_events_current_are_past') ){
+					$conditions['scope'] = "( event_start_date BETWEEN CAST('$date_start' AS DATE) AND CAST('$date_end' AS DATE) )";
+				}else{
+					$conditions['scope'] = "( event_start_date <= CAST('$date_end' AS DATE) AND event_end_date >= CAST('$date_start' AS DATE) )";
+				}
+				//$conditions['scope'] = " ( ( event_start_date <= CAST('$date_end' AS DATE) AND event_end_date >= CAST('$date_start' AS DATE) ) OR (event_start_date BETWEEN CAST('$date_start' AS DATE) AND CAST('$date_end' AS DATE)) OR (event_end_date BETWEEN CAST('$date_start' AS DATE) AND CAST('$date_end' AS DATE)) )";
 			}
 		} elseif ( preg_match ( "/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/", $scope ) ) {
 			//Scope can also be a specific date. However, if 'day', 'month', or 'year' are set, that will take precedence
-			$conditions['scope'] = " ( event_start_date = CAST('$scope' AS DATE) OR ( event_start_date <= CAST('$scope' AS DATE) AND event_end_date >= CAST('$scope' AS DATE) ) )";
+			if( get_option('dbem_events_current_are_past') ){
+				$conditions['scope'] = "event_start_date = CAST('$scope' AS DATE)";
+			}else{
+				$conditions['scope'] = " ( event_start_date = CAST('$scope' AS DATE) OR ( event_start_date <= CAST('$scope' AS DATE) AND event_end_date >= CAST('$scope' AS DATE) ) )";
+			}
 		} else {
 			if ($scope == "past"){
 				if( get_option('dbem_events_current_are_past') ){
@@ -303,7 +319,7 @@ class EM_Object {
 			//we can accept country codes or names
 			if( in_array($args['country'], $countries) ){
 				//we have a country name, 
-				$conditions['country'] = "location_country='".array_search($args['country'])."'";	
+				$conditions['country'] = "location_country='".array_search($args['country'], $countries)."'";	
 			}elseif( array_key_exists($args['country'], $countries) ){
 				//we have a country code
 				$conditions['country'] = "location_country='".$args['country']."'";					
@@ -323,51 +339,92 @@ class EM_Object {
 		}
 		//Add conditions for category selection
 		//Filter by category, can be id or comma seperated ids
-		//TODO create an exclude category option
-		if ( is_numeric($category) && $category > 0 ){
+		$not = '';
+		if ( !empty($category) && is_numeric($category) ){
+			$not = ( $category < 0 ) ? "NOT":'';
 			//get the term id directly
-			$term = new EM_Category($category);
-			if( $term !== false && !is_wp_error($term) ){
+			$term = new EM_Category(absint($category));
+			if( !empty($term->term_id) ){
 				if( EM_MS_GLOBAL ){
-					$conditions['category'] = " ".EM_EVENTS_TABLE.".event_id IN ( SELECT object_id FROM ".EM_META_TABLE." WHERE meta_value={$term->term_id} AND meta_key='event-category' ) ";
+					$conditions['category'] = " ".EM_EVENTS_TABLE.".event_id $not IN ( SELECT object_id FROM ".EM_META_TABLE." WHERE meta_value={$term->term_id} AND meta_key='event-category' ) ";
 				}else{
-					$conditions['category'] = " ".EM_EVENTS_TABLE.".post_id IN ( SELECT object_id FROM ".$wpdb->term_relationships." WHERE term_taxonomy_id={$term->term_taxonomy_id} ) ";
+					$conditions['category'] = " ".EM_EVENTS_TABLE.".post_id $not IN ( SELECT object_id FROM ".$wpdb->term_relationships." WHERE term_taxonomy_id={$term->term_taxonomy_id} ) ";
 				}
-			} 
+			}elseif( $category > 0 ){
+			    $conditions = array('category'=>'2=1'); //force a false
+			}
 		}elseif( self::array_is_numeric($category) ){
 			$term_ids = array();
-			foreach($category as $category_id){
-				$term = new EM_Category($category_id);
-				if( $term !== false && !is_wp_error($term) ){
-					$term_ids[] = $term->term_taxonomy_id;
+			$term_not_ids = array();
+			if( EM_MS_GLOBAL ){
+			    //we're directly looking for category ids from within the em_meta table
+				foreach($category as $category_id){
+					if( $category_id > 0 ){
+						$term_ids[] = $category_id;
+					}else{
+						$term_not_ids[] = absint($category_id);
+					}
 				}
-			}
-			if( count($term_ids) > 0 ){
-				if( EM_MS_GLOBAL ){
-					$conditions['category'] = " ".EM_EVENTS_TABLE.".event_id IN ( SELECT object_id FROM ".EM_META_TABLE." WHERE meta_value IN (".implode(',',$term_ids).") AND meta_name='event-category' ) ";
+				$cat_conds = array();
+				if( count($term_ids) > 0 ){
+					$cat_conds[] = EM_EVENTS_TABLE.".event_id IN ( SELECT object_id FROM ".EM_META_TABLE." WHERE meta_value IN (".implode(',',$term_ids).") AND meta_key='event-category' )";
+				}
+				if( count($term_not_ids) > 0 ){
+					$cat_conds[] = EM_EVENTS_TABLE.".event_id NOT IN ( SELECT object_id FROM ".EM_META_TABLE." WHERE meta_value IN (".implode(',',$term_not_ids).") AND meta_key='event-category' )";			
+				}
+				if( count($cat_conds) > 0 ){
+					$conditions['category'] = '('. implode(' AND ', $cat_conds) .')';
+				}
+			}else{
+			    //normal taxonomy filtering
+				foreach($category as $category_id){
+					$term = new EM_Category(absint($category_id));
+					if( !empty($term->term_taxonomy_id) ){
+						if( $category_id > 0 ){
+							$term_ids[] = $term->term_taxonomy_id;
+						}else{
+							$term_not_ids[] = $term->term_taxonomy_id;
+						}
+					}
+				}
+				if( count($term_ids) > 0 || count($term_not_ids) > 0 ){
+					$cat_conds = array();
+					if( count($term_ids) > 0 ){
+						$cat_conds[] = EM_EVENTS_TABLE.".post_id IN ( SELECT object_id FROM ".$wpdb->term_relationships." WHERE term_taxonomy_id IN (".implode(',',$term_ids).") )";
+					}
+					if( count($term_not_ids) > 0 ){
+						$cat_conds[] = EM_EVENTS_TABLE.".post_id NOT IN ( SELECT object_id FROM ".$wpdb->term_relationships." WHERE term_taxonomy_id IN (".implode(',',$term_not_ids).") )";			
+					}
+					if( count($cat_conds) > 0 ){
+						$conditions['category'] = '('. implode(' AND ', $cat_conds) .')';
+					}
 				}else{
-					$conditions['category'] = " ".EM_EVENTS_TABLE.".post_id IN ( SELECT object_id FROM ".$wpdb->term_relationships." WHERE term_taxonomy_id IN (".implode(',',$term_ids).") ) ";
+				    $conditions = array('tag'=>'2=1'); //force a false
 				}
 			}
 		}		
 		//Add conditions for tags
 		//Filter by tag, can be id or comma seperated ids
-		if ( is_numeric($tag) && $tag > 0 ){
+		if ( !empty($tag) && !is_array($tag) ){
 			//get the term id directly
 			$term = new EM_Tag($tag);
-			if( $term !== false && !is_wp_error($term) ){
+			if( !empty($term->term_id) ){
 				$conditions['tag'] = " ".EM_EVENTS_TABLE.".post_id IN ( SELECT object_id FROM ".$wpdb->term_relationships." WHERE term_taxonomy_id={$term->term_taxonomy_id} ) ";
-			} 
-		}elseif( self::array_is_numeric($tag) ){
+			}else{
+			    $conditions = array('tag'=>'2=1'); //force a false
+			}
+		}elseif( is_array($tag) ){
 			$term_ids = array();
 			foreach($tag as $tag_id){
 				$term = new EM_Tag($tag_id);
-				if( $term !== false && !is_wp_error($term) ){
+				if( !empty($term->term_id) ){
 					$term_ids[] = $term->term_taxonomy_id;
 				}
 			}
 			if( count($term_ids) > 0 ){
 				$conditions['tag'] = " ".EM_EVENTS_TABLE.".post_id IN ( SELECT object_id FROM ".$wpdb->term_relationships." WHERE term_taxonomy_id IN (".implode(',',$term_ids).") ) ";
+			}else{
+			    $conditions = array('tag'=>'2=1'); //force a false
 			}
 		}
 	
@@ -385,6 +442,7 @@ class EM_Object {
 	}
 	
 	/**
+	 * WORK IN PROGRESS
 	 * Builds an array of SQL query conditions based on regularly used arguments
 	 * @param array $args
 	 * @return array
@@ -606,9 +664,9 @@ class EM_Object {
 		if ( is_numeric($category) && $category > 0 ){
 			//get the term id directly
 			$term = new EM_Category($category);
-			if( $term !== false && !is_wp_error($term) ){
+			if( !empty($term->term_id) ){
 				if( EM_MS_GLOBAL ){
-					$event_ids = $wpdb->get_col($wpdb->prepare("SELECT object_id FROM ".EM_META_TABLE." WHERE meta_value={$term->term_id} AND meta_key='event-category'"));
+					$event_ids = $wpdb->get_col($wpdb->prepare("SELECT object_id FROM ".EM_META_TABLE." WHERE meta_value=%d AND meta_key='event-category'", $term->term_id));
 					$query[] = array( 'key' => '_event_id', 'value' => $event_ids, 'compare' => 'IN' );
 				}else{
 					if( !is_array($wp_query->query_vars['tax_query']) ) $wp_query->query_vars['tax_query'] = array();
@@ -619,13 +677,13 @@ class EM_Object {
 			$term_ids = array();
 			foreach($category as $category_id){
 				$term = new EM_Category($category_id);
-				if( $term !== false && !is_wp_error($term) ){
+				if( !empty($term->term_id) ){
 					$term_ids[] = $term->term_taxonomy_id;
 				}
 			}
 			if( count($term_ids) > 0 ){
 				if( EM_MS_GLOBAL ){
-					$event_ids = $wpdb->get_col($wpdb->prepare("SELECT object_id FROM ".EM_META_TABLE." WHERE meta_value IN (".implode(',',$term_ids).") AND meta_name='event-category'"));
+					$event_ids = $wpdb->get_col("SELECT object_id FROM ".EM_META_TABLE." WHERE meta_value IN (".implode(',',$term_ids).") AND meta_name='event-category'");
 					$query[] = array( 'key' => '_event_id', 'value' => $event_ids, 'compare' => 'IN' );
 				}else{
 					if( !is_array($wp_query->query_vars['tax_query']) ) $wp_query->query_vars['tax_query'] = array();
@@ -635,18 +693,18 @@ class EM_Object {
 		}		
 		//Add conditions for tags
 		//Filter by tag, can be id or comma seperated ids
-		if ( is_numeric($tag) && $tag > 0 ){
+		if ( !empty($tag) && !is_array($tag) ){
 			//get the term id directly
 			$term = new EM_Tag($tag);
-			if( $term !== false && !is_wp_error($term) ){
+			if( !empty($term->term_id) ){
 				if( !is_array($wp_query->query_vars['tax_query']) ) $wp_query->query_vars['tax_query'] = array();
 				$wp_query->query_vars['tax_query'] = array('taxonomy' => EM_TAXONOMY_TAXONOMY, 'field'=>'id', 'terms'=>$term->term_taxonomy_id);
 			} 
-		}elseif( self::array_is_numeric($tag) ){
+		}elseif( is_array($tag) ){
 			$term_ids = array();
-			foreach($tag as $tag_id){
-				$term = new EM_Tag($tag_id);
-				if( $term !== false && !is_wp_error($term) ){
+			foreach($tag as $tag_data){
+				$term = new EM_Tag($tag_data);
+				if( !empty($term->term_id) ){
 					$term_ids[] = $term->term_taxonomy_id;
 				}
 			}
@@ -718,27 +776,29 @@ class EM_Object {
 	 */
 	function can_manage( $owner_capability = false, $admin_capability = false, $user_to_check = false ){
 		global $em_capabilities_array;
-		if( $user_to_check ){
-			$user = new WP_User($user_to_check);
-			if( empty($user->ID) ) $user = false;
-		} 
-		//if multisite and supoer admin, just return true
+		//if multisite and super admin, just return true
 		if( is_multisite() && is_super_admin() ){ return true; }
+		//set user to the desired user we're verifying, otherwise default to current user
+	    if( $user_to_check ){
+	    	$user = new WP_User($user_to_check);	
+	    }
+	    if( empty($user->ID) ) $user = wp_get_current_user();
 		//do they own this?
 		$is_owner = ( (!empty($this->owner) && ($this->owner == get_current_user_id()) || empty($this->id) || (!empty($user) && $this->owner == $user->ID)) );
 		//now check capability
 		$can_manage = false;
-		if( $is_owner && (current_user_can($owner_capability) || (!empty($user) && $user->has_cap($owner_capability))) ){
+		if( $is_owner && $owner_capability && $user->has_cap($owner_capability) ){
 			//user owns the object and can therefore manage it
 			$can_manage = true;
-		}elseif( array_key_exists($owner_capability, $em_capabilities_array) ){
+		}elseif( $owner_capability && array_key_exists($owner_capability, $em_capabilities_array) ){
 			//currently user is not able to manage as they aren't the owner
 			$error_msg = $em_capabilities_array[$owner_capability];
 		}
 		//admins have special rights
-		if( current_user_can($admin_capability) || (!empty($user) && $user->has_cap($admin_capability)) ){
+		if( !$admin_capability ) $admin_capability = $owner_capability;
+		if( $admin_capability && $user->has_cap($admin_capability) ){
 			$can_manage = true;
-		}elseif( array_key_exists($admin_capability, $em_capabilities_array) ){
+		}elseif( $admin_capability && array_key_exists($admin_capability, $em_capabilities_array) ){
 			$error_msg = $em_capabilities_array[$admin_capability];
 		}
 		
@@ -750,15 +810,15 @@ class EM_Object {
 
 	
 	function ms_global_switch(){
-		if( EM_MS_GLOBAL && !is_main_site() ){
-			//If in multisite global, then get the main blog categories
+		if( EM_MS_GLOBAL ){
+			//If in multisite global, then get the main blog
 			global $current_site;
 			switch_to_blog($current_site->blog_id);
 		}
 	}
 	
 	function ms_global_switch_back(){
-		if( EM_MS_GLOBAL && !is_main_site() ){
+		if( EM_MS_GLOBAL ){
 			restore_current_blog();
 		}
 	}
@@ -840,9 +900,9 @@ class EM_Object {
 			$return = array();
 			foreach($this->fields as $fieldName => $fieldArray){
 				if($inverted_array){
-					$return[$fieldName] = $fieldName;
+					$return[$fieldArray['name']] = $fieldName;
 				}else{
-					$return[$fieldName] = $fieldName;
+					$return[$fieldName] = $fieldArray['name'];
 				}
 			}
 			return apply_filters('em_object_get_fields', $return, $this, $inverted_array);
@@ -883,8 +943,8 @@ class EM_Object {
 						$array[$key] = (int) $string;
 					}elseif( self::array_is_numeric($string) ){
 						$array[$key] = $string;
-					}elseif( !is_array($string) && preg_match('/^([0-9],?)+$/', $string) ){
-						$array[$key] = explode(',', $string);
+					}elseif( !is_array($string) && preg_match('/^( ?[\-0-9] ?,?)+$/', $string) ){
+					    $array[$key] = explode(',', str_replace(' ','',$string));
 					}else{
 						//No format we accept
 						unset($array[$key]);
@@ -904,15 +964,20 @@ class EM_Object {
 	 */
 	function email_send($subject, $body, $email){
 		global $EM_Mailer;
-		if( !$EM_Mailer->send($subject,$body,$email) ){
-			if( is_array($EM_Mailer->errors) ){
-				foreach($EM_Mailer->errors as $error){
-					$this->errors[] = $error;
-				}
-			}else{
-				$this->errors[] = $EM_Mailer->errors;
+		if( !empty($subject) ){
+			if( !is_object($EM_Mailer) ){
+				$EM_Mailer = new EM_Mailer();
 			}
-			return false;
+			if( !$EM_Mailer->send($subject,$body,$email) ){
+				if( is_array($EM_Mailer->errors) ){
+					foreach($EM_Mailer->errors as $error){
+						$this->errors[] = $error;
+					}
+				}else{
+					$this->errors[] = $EM_Mailer->errors;
+				}
+				return false;
+			}
 		}
 		return true;
 	}
@@ -950,9 +1015,13 @@ class EM_Object {
 	function add_error($errors){
 		if(!is_array($errors)){ $errors = array($errors); } //make errors var an array if it isn't already
 		if(!is_array($this->errors)){ $this->errors = array(); } //create empty array if this isn't an array
-		foreach($errors as $error){			
+		foreach($errors as $key => $error){			
 			if( !in_array($error, $this->errors) ){
-				$this->errors[] = $error;
+			    if( !is_array($error) ){
+					$this->errors[] = $error;
+			    }else{
+			        $this->errors[] = array($key => $error);
+			    }
 			}
 		}
 	}
@@ -963,12 +1032,13 @@ class EM_Object {
 	 * @return string
 	 */
 	function json_encode($array){
+	    $array = apply_filters('em_object_json_encode_pre',$array);
 		if( function_exists("json_encode") ){
 			$return = json_encode($array);
 		}else{
 			$return = self::array_to_json($array);
 		}
-		if( isset($_REQUEST['callback']) ){
+		if( isset($_REQUEST['callback']) && preg_match("/^jQuery[_a-zA-Z0-9]+$/", $_REQUEST['callback']) ){
 			$return = $_REQUEST['callback']."($return)";
 		}
 		return apply_filters('em_object_json_encode', $return, $array);
@@ -1070,7 +1140,13 @@ class EM_Object {
 			//legacy image finder, annoying, but must be done
 			if( empty($image_url) ){
 				$type = $this->get_image_type();
-				$id = ( get_class($this) == "EM_Event" && $this->is_recurrence() ) ? $this->recurrence_id:$this->event_id; //quick fix for recurrences
+				if( get_class($this) == "EM_Event" ){
+					$id = ( $this->is_recurrence() ) ? $this->recurrence_id:$this->event_id; //quick fix for recurrences
+				}elseif( get_class($this) == "EM_Location" ){
+				    $id = $this->location_id;
+				}else{
+				    $id = $this->id;
+				}
 				if( $type ){
 				  	foreach($this->mime_types as $mime_type) {
 						$file_name = $this->get_image_type(true)."-{$id}.$mime_type";
@@ -1159,9 +1235,14 @@ class EM_Object {
 				     	$this->add_error( __('The image file is too big! Maximum size:', 'dbem')." $maximum_size");
 					}
 					$maximum_width = get_option('dbem_image_max_width'); 
-					$maximum_height = get_option('dbem_image_max_height'); 
+					$maximum_height = get_option('dbem_image_max_height');
+					$minimum_width = get_option('dbem_image_min_width'); 
+					$minimum_height = get_option('dbem_image_min_height');  
 				  	if (($width > $maximum_width) || ($height > $maximum_height)) { 
 						$this->add_error( __('The image is too big! Maximum size allowed:','dbem')." $maximum_width x $maximum_height");
+				  	}
+				  	if (($width < $minimum_width) || ($height < $minimum_height)) { 
+						$this->add_error( __('The image is too small! Minimum size allowed:','dbem')." $minimum_width x $minimum_height");
 				  	}
 				  	if ( empty($mime_type) || !array_key_exists($mime_type, $this->mime_types) ){ 
 						$this->add_error(__('The image is in a wrong format!','dbem'));
@@ -1174,4 +1255,18 @@ class EM_Object {
 	/*
 	 * END IMAGE UPlOAD FUNCTIONS
 	 */
+	
+	/**
+	 * 
+	 * @return boolean
+	 */
+	function has_taxes(){
+	    //TODO make all functions use this to check tax availability (using extended object for function access)
+	    //TODO override this function in e.g. events to allow custom tax values
+	    return !get_option('dbem_bookings_tax_auto_add') && is_numeric(get_option('dbem_bookings_tax')) && $this->get_tax_rate() > 0;
+	}
+	
+	function get_tax_rate(){
+		return get_option('dbem_bookings_tax');
+	}
 }

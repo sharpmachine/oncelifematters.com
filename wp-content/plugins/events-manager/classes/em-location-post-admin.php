@@ -48,9 +48,9 @@ class EM_Location_Post_Admin{
 		$saving_status = !in_array(get_post_status($post_id), array('trash','auto-draft')) && !defined('DOING_AUTOSAVE');
 		$is_post_type = get_post_type($post_id) == EM_POST_TYPE_LOCATION;
 		if(!defined('UNTRASHING_'.$post_id) && $is_post_type && $saving_status){
-			if( wp_verify_nonce($_REQUEST['_emnonce'], 'edit_location')){
-				do_action('em_location_save_pre', $this);
+			if( !empty($_REQUEST['_emnonce']) && wp_verify_nonce($_REQUEST['_emnonce'], 'edit_location')){
 				$EM_Location = em_get_location($post_id, 'post_id');
+				do_action('em_location_save_pre', $EM_Location);
 				$get_meta = $EM_Location->get_post_meta();
 				$save_meta = $EM_Location->save_meta();
 				//Handle Errors by making post draft
@@ -58,21 +58,21 @@ class EM_Location_Post_Admin{
 					$EM_Location->set_status(null, true);
 					$EM_Notices->add_error( '<strong>'.sprintf(__('Your %s details are incorrect and cannot be published, please correct these errors first:','dbem'),__('location','dbem')).'</strong>', true); //Always seems to redirect, so we make it static
 					$EM_Notices->add_error($EM_Location->get_errors(), true); //Always seems to redirect, so we make it static
-					apply_filters('em_location_save', false , $this);
+					apply_filters('em_location_save', false , $EM_Location);
 				}else{
-					apply_filters('em_location_save', true , $this);
+					apply_filters('em_location_save', true , $EM_Location);
 				}
 			}else{
 				//do a quick and dirty update
-				do_action('em_location_save_pre', $this);
 				$EM_Location = new EM_Location($post_id, 'post_id');
+				do_action('em_location_save_pre', $EM_Location);
 				//check for existence of index
 				$loc_truly_exists = $wpdb->get_var('SELECT location_id FROM '.EM_LOCATIONS_TABLE." WHERE location_id={$EM_Location->location_id}") == $EM_Location->location_id;
 				if(empty($EM_Location->location_id) || !$loc_truly_exists){ $EM_Location->save_meta(); }
 				//continue
 				$location_status = ($EM_Location->is_published()) ? 1:0;
 				$wpdb->query("UPDATE ".EM_LOCATIONS_TABLE." SET location_name='{$EM_Location->location_name}', location_slug='{$EM_Location->location_slug}', location_private='{$EM_Location->location_private}',location_status={$location_status} WHERE location_id='{$EM_Location->location_id}'");
-				apply_filters('em_location_save', true , $this);
+				apply_filters('em_location_save', true , $EM_Location);
 			}
 		}
 	}

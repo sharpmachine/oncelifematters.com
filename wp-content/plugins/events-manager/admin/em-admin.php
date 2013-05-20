@@ -37,8 +37,8 @@ function em_admin_menu(){
    	if( get_option('dbem_rsvp_enabled') ){
 		$plugin_pages['bookings'] = add_submenu_page('edit.php?post_type='.EM_POST_TYPE_EVENT, __('Bookings', 'dbem'), __('Bookings', 'dbem').$bookings_num, 'manage_bookings', 'events-manager-bookings', "em_bookings_page");
    	}
-	$plugin_pages['options'] = add_submenu_page('edit.php?post_type='.EM_POST_TYPE_EVENT, __('Events Manager Settings','dbem'),__('Settings','dbem'), 'activate_plugins', "events-manager-options", 'em_admin_options_page');
-	$plugin_pages['help'] = add_submenu_page('edit.php?post_type='.EM_POST_TYPE_EVENT, __('Getting Help for Events Manager','dbem'),__('Help','dbem'), 'activate_plugins', "events-manager-help", 'em_admin_help_page');
+	$plugin_pages['options'] = add_submenu_page('edit.php?post_type='.EM_POST_TYPE_EVENT, __('Events Manager Settings','dbem'),__('Settings','dbem'), 'list_users', "events-manager-options", 'em_admin_options_page');
+	$plugin_pages['help'] = add_submenu_page('edit.php?post_type='.EM_POST_TYPE_EVENT, __('Getting Help for Events Manager','dbem'),__('Help','dbem'), 'list_users', "events-manager-help", 'em_admin_help_page');
 	//If multisite global with locations set to be saved in main blogs we can force locations to be created on the main blog only
 	if( EM_MS_GLOBAL && !is_main_site() && get_site_option('dbem_ms_mainblog_locations') ){
 		include( dirname(__FILE__)."/em-ms-locations.php" );
@@ -93,7 +93,7 @@ function em_ms_admin_menu(){
 add_action('network_admin_menu','em_ms_admin_menu');
 
 function em_admin_init(){
-	//in MS global mode
+	//in MS global mode and locations are stored in the main blog, then a user must have at least a subscriber role
 	if( EM_MS_GLOBAL && is_user_logged_in() && !is_main_site() && get_site_option('dbem_ms_mainblog_locations') ){
 		EM_Object::ms_global_switch();
 		$user = new WP_User(get_current_user_id());
@@ -142,10 +142,10 @@ function em_admin_warnings() {
 			}
 		}
 		
-		if( defined('EMP_VERSION') && EMP_VERSION < EM_PRO_MIN_VERSION ){ 
+		if( defined('EMP_VERSION') && EMP_VERSION < EM_PRO_MIN_VERSION && !defined('EMP_DISABLE_WARNINGS')){ 
 			?>
 			<div id="em_page_error" class="updated">
-				<p><?php _e('There is a newer version of Events Manager Pro which is required for this current version of Events Manager. Please go to the plugin website and download the latest update.','dbem'); ?></p>
+				<p><?php _e('There is a newer version of Events Manager Pro which is recommended for this current version of Events Manager as new features have been added. Please go to the plugin website and download the latest update.','dbem'); ?></p>
 			</div>
 			<?php
 		}
@@ -173,10 +173,28 @@ function em_admin_warnings() {
 				<?php
 			}
 		}
+		if( !empty($_REQUEST['page']) && 'events-manager-options' == $_REQUEST['page'] && get_option('dbem_pro_dev_updates') == 1 ){
+			?>
+			<div id="message" class="updated">
+				<p><?php echo sprintf(__('Dev Mode active: Just a friendly reminder that you are updating to development versions. Only admins see this message, and it will go away when you disable this <a href="#pro-api">here</a> in your settings.','em-pro'),'<code>define(\'EMP_DEV_UPDATES\',true);</code>'); ?></p>
+			</div>
+			<?php
+		}
+		if( class_exists('SitePress') && !class_exists('EM_WPML') && !get_site_option('disable_em_wpml_warning') ){
+			if( !empty($_REQUEST['disable_em_wpml_warning']) ){
+				update_site_option('disable_em_wpml_warning',1);
+			}else{
+				?>
+				<div id="message" class="updated">
+					<p><?php echo sprintf(__('It looks like you have WPML enabled on your site. We advise you also install our extra <a href="%s">Events Manager WPML Connector</a> plugin which helps the two work better together. <a href="%s">Dismiss message</a>','em-pro'),'http://wordpress.org/extend/plugins/events-manager-wpml/', add_query_arg(array('disable_em_wpml_warning'=>1))); ?></p>
+				</div>
+				<?php
+			}
+		}
 	}
 	//Warn about EM page edit
 	if ( preg_match( '/(post|page).php/', $_SERVER ['SCRIPT_NAME']) && isset ( $_GET ['action'] ) && $_GET ['action'] == 'edit' && isset ( $_GET ['post'] ) && $_GET ['post'] == "$events_page_id") {
-		$message = sprintf ( __ ( "This page corresponds to <strong>Events Manager</strong> events page. Its content will be overriden by Events Manager, although if you include the word CONTENTS (exactly in capitals) and surround it with other text, only CONTENTS will be overwritten. If you want to change the way your events look, go to the <a href='%s'>settings</a> page. ", 'dbem' ), EM_ADMIN_URL .'&amp;page=events-manager-options' );
+		$message = sprintf ( __ ( "This page corresponds to the <strong>Events Manager</strong> %s page. Its content will be overriden by Events Manager, although if you include the word CONTENTS (exactly in capitals) and surround it with other text, only CONTENTS will be overwritten. If you want to change the way your events look, go to the <a href='%s'>settings</a> page. ", 'dbem' ), __('Events','dbem'), EM_ADMIN_URL .'&amp;page=events-manager-options' );
 		$notice = "<div class='error'><p>$message</p></div>";
 		echo $notice;
 	}
@@ -190,28 +208,65 @@ add_action ( 'admin_notices', 'em_admin_warnings', 100 );
  * @param string $file
  * @return array
  */
-function em_set_plugin_meta($links, $file) {
-	$plugin = plugin_basename(__FILE__);
-	// create link
-	if ($file == $plugin) {
-		return array_merge(
-			$links,
-			array( sprintf( '<a href="'.EM_ADMIN_URL.'&amp;page=events-manager-options">%s</a>', __('Settings', 'dbem') ) )
-		);
-	}
-	return $links;
-}
-//add_filter( 'plugin_row_meta', 'em_set_plugin_meta', 10, 2 );
-
 function em_plugin_action_links($actions, $file, $plugin_data) {
-	$actions['settings'] = sprintf( '<a href="'.EM_ADMIN_URL.'&amp;page=events-manager-options">%s</a>', __('Settings', 'dbem') );
+	$new_actions = array();
+	$new_actions[] = sprintf( '<a href="'.EM_ADMIN_URL.'&amp;page=events-manager-options">%s</a>', __('Settings', 'dbem') );
+	$new_actions = array_merge($new_actions, $actions);
 	if( is_multisite() ){
 		$uninstall_url = admin_url().'network/admin.php?page=events-manager-options&amp;action=uninstall&amp;_wpnonce='.wp_create_nonce('em_uninstall_'.get_current_user_id().'_wpnonce');
 	}else{
 		$uninstall_url = EM_ADMIN_URL.'&amp;page=events-manager-options&amp;action=uninstall&amp;_wpnonce='.wp_create_nonce('em_uninstall_'.get_current_user_id().'_wpnonce');
 	}
-	$actions['uninstall'] = '<span class="delete"><a href="'.$uninstall_url.'" class="delete">'.__('Uninstall','dbem').'</a></span>';
-	return $actions;
+	$new_actions[] = '<span class="delete"><a href="'.$uninstall_url.'" class="delete">'.__('Uninstall','dbem').'</a></span>';
+	return $new_actions;
 }
 add_filter( 'plugin_action_links_events-manager/events-manager.php', 'em_plugin_action_links', 10, 3 );
+
+//Updates and Dev versions
+function em_updates_check( $transient ) {
+    // Check if the transient contains the 'checked' information
+    if( empty( $transient->checked ) )
+        return $transient;
+        
+    //only bother if we're checking for dev versions
+    if( get_option('em_check_dev_version') || get_option('dbem_pro_dev_updates') ){     
+	    //check WP repo for trunk version
+	    $request = wp_remote_get('http://plugins.svn.wordpress.org/events-manager/trunk/events-manager.php');
+	    
+	    if( !is_wp_error($request) ){
+		    preg_match('/Version: ([0-9a-z\.]+)/', $request['body'], $matches);
+		    
+		    if( !empty($matches[1]) ){
+		    	//we have a version number!
+			    if( version_compare($transient->checked[EM_SLUG], $matches[1]) < 0) {
+			    	$response = new stdClass();
+			    	$response->slug = EM_SLUG;
+					$response->new_version = $matches[1] ;
+			        $response->url = 'http://wordpress.org/extend/plugins/events-manager/';
+				    $response->package = 'http://downloads.wordpress.org/plugin/events-manager.zip';
+			       	$transient->response[EM_SLUG] = $response;
+			    }
+		    }
+		}
+		
+		delete_option('em_check_dev_version');
+    }
+    
+    return $transient;
+}
+add_filter('pre_set_site_transient_update_plugins', 'em_updates_check'); // Hook into the plugin update check and mod for dev version
+
+function em_user_action_links( $actions, $user ){
+	if ( !is_network_admin() && current_user_can( 'manage_others_bookings' ) ){
+		if( get_option('dbem_edit_bookings_page') && (!is_admin() || !empty($_REQUEST['is_public'])) ){
+			$my_bookings_page = get_permalink(get_option('dbem_edit_bookings_page'));
+			$bookings_link = em_add_get_params($my_bookings_page, array('person_id'=>$user->ID), false);
+		}else{
+			$bookings_link = EM_ADMIN_URL. "&page=events-manager-bookings&person_id=".$user->ID;
+		}
+		$actions['bookings'] = "<a href='$bookings_link'>" . __( 'Bookings','dbem' ) . "</a>";
+	}
+	return $actions;
+}
+add_filter('user_row_actions','em_user_action_links',10,2);
 ?>

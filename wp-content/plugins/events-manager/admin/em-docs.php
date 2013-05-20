@@ -15,7 +15,8 @@ function em_docs_init($force_init = false){
 				'events' => array(
 					'blog' => array( 'desc' => sprintf('Limit search to %s created in a specific blog id (MultiSite only)','events')),
 					'bookings' => array( 'desc'=> 'Include only events with bookings enabled. Use \'user\' to show events a logged in user has booked.'.'1 = yes, 0 = no'),
-					'category' => array( 'desc'=> sprintf('Supply a single id or comma-seperated ids (e.g. "1,2,3") to limit the search to events in these %s.','categories'), 'default'=>0),
+					'category' => array( 'desc'=> sprintf('Supply a single id or comma-seperated ids (e.g. "1,2,3") to limit the search to events in these %s. You can also use negative numbers to exclude specific categories (e.g. -1,-2,-3).','categories'), 'default'=>0),
+					'tag' => array( 'desc'=> sprintf('Supply a single id or comma-seperated ids (e.g. "music,theatre,sport") to limit the search to events in these %s.','tags'), 'default'=>0),
 					'event' => array( 'desc'=> sprintf('Supply a single id or comma-seperated ids (e.g. "1,2,3") to limit the search to %s with the %s.','events', 'event_id(s)'), 'default'=>0),
 					'group' => array( 'desc' => 'Limit search to events belonging to a specific group id (BuddyPress only). Using \'my\' will show events belonging to groups the logged in user is a member of.'),
 					'post_id' => array( 'desc' => sprintf('Supply a single id or comma-seperated ids (e.g. "1,2,3") to limit the search to %s with the %s.','events', 'post_id(s)')),
@@ -26,7 +27,6 @@ function em_docs_init($force_init = false){
 					'search' => array( 'desc'=> 'Do a search for this string within event name, details and location address.' ),
 					'status' => array( 'desc' => sprintf('Limit search to %s with a spefic status (1 is active, 0 is pending approval)','events'), 'default'=>1),
 					'scope' => array( 'desc'=> 'Choose the time frame of events to show. Additionally you can supply dates (in format of YYYY-MM-DD), either single for events on a specific date or two dates seperated by a comma (e.g. 2010-12-25,2010-12-31) for events ocurring between these dates.', 'default'=>'future', 'args'=>array("future", "past", "today", "tomorrow", "month", "next-month", "1-months", "2-months", "3-months", "6-months", "12-months","all")),
-					'category' => array( 'desc'=> sprintf('Supply a single id or comma-seperated ids (e.g. "1,2,3") to limit the search to events in these %s.','tags'), 'default'=>0),
 					'year' => array( 'desc'=> 'If set to a year (e.g. 2010) only events that start or end during this year/month will be returned. Does not work as intended if used with scope.', 'default'=>''),
 				),
 				'locations' => array(
@@ -46,6 +46,9 @@ function em_docs_init($force_init = false){
 					'postcode' => array( 'desc'=> sprintf('Search for %s in this %s (no partial matches, case sensitive).','locations','Postcode'), 'default' => 'none')
 				),
 				'categories' => array(
+					'' => array( 'desc' => 'See the <a href="http://codex.wordpress.org/Function_Reference/get_terms">WordPress get_terms() Codex</a> for a list of possible search attributes/arguments.'),
+				),
+				'tags' => array(
 					'' => array( 'desc' => 'See the <a href="http://codex.wordpress.org/Function_Reference/get_terms">WordPress get_terms() Codex</a> for a list of possible search attributes/arguments.'),
 				),
 				'calendar' => array(
@@ -78,9 +81,10 @@ function em_docs_init($force_init = false){
 							'#_EVENTIMAGE' => array( 'desc' => 'Shows the event image, if available.' ),
 							'#_EVENTIMAGE{x,y}' => array( 'desc' => 'Shows the event image thumbnail, x and y are width and height respectively, both being numbers e.g. <code>#_EVENTIMAGE{100,100}</code>' ),
 							'#_EVENTCATEGORIES' => array( 'desc' => 'Shows a list of category links this event belongs to.' ),
+							'#_EVENTCATEGORIESIMAGES'  => array( 'desc' => 'Shows a list of category images this event belongs to. Categories without an image will be ignored.' ),
 							'#_EVENTTAGS' => array( 'desc' => 'Shows a list of tag links this event belongs to.' ),
 						)
-					),			
+					),
 					'Date and Times' => array(
 						'desc' => '',
 						'placeholders' => array(
@@ -96,7 +100,7 @@ function em_docs_init($force_init = false){
 						'desc' => 'Events Manager allows extremely flexible date formatting by using <a href="http://www.php.net/manual/en/function.date.php">PHP date syntax format characters</a> along with placeholders.',
 						'placeholders' => array(
 							'# or #@' => array( 'desc' => 'Prepend <code>#</code> or <code>#@</code> before a valid PHP date syntax format character to show start and end date/time information respectively (e.g. <code>#F</code> will show the starting month name like "January", #@h shows the end hour).' ),
-							'#{x} or #@{x}' => array( 'desc' => 'You can also create a date format without prepending # to each character by wrapping a valid php date() format in <code>#{}</code> or <code>#@{}</code> (e.g. <code>#_{d/m/Y}</code>). If there is no end date (or is same as start date), the value is not shown. This is useful if you want to show event end dates only on events that are longer than on day, e.g. <code>#j #M #Y #@_{ \u\n\t\i\l j M Y}</code>.' ),
+							'#{x} or #@{x}' => array( 'desc' => 'You can also create a date format without prepending # to each character by wrapping a valid php date() format in <code>#{}</code> or <code>#@{}</code> (e.g. <code>#_{d/m/Y}</code>). If there is no end date (or is same as start date), the value is not shown. This is useful if you want to show event end dates only on events that are longer than one day, e.g. <code>#j #M #Y #@_{ \u\n\t\i\l j M Y}</code>.' ),
 						)
 					),
 					'Links/URLs' => array(
@@ -109,7 +113,7 @@ function em_docs_init($force_init = false){
 						)
 					),
 					'Custom Attributes' => array(
-						'desc' => 'Events Manager allows you to create dynamic attributes to your events, which act as extra information fields for your events (e.g. "Dress Code"). For more information see <a href="http://wp-events-plugin.com/documentation/categories-and-attributes/">our online documentation</a> for more info on attributes.',
+						'desc' => 'Events Manager allows you to create dynamic attributes to your events, which act as extra information fields for your events (e.g. "Dress Code"). For more information see <a href="http://wp-events-plugin.com/documentation/event-attributes/">our online documentation</a> for more info on attributes.',
 						'placeholders' => array( 
 							'#_ATT{key}' => array('desc'=> 'This key will appear as an option when adding attributes to your event.'),
 							'#_ATT{key}{alternative text}' => array('desc'=> 'This key will appear as an option when adding attributes to your event. The text in the second braces will appear if the attribute is not defined or left blank for that event.'),
@@ -125,10 +129,13 @@ function em_docs_init($force_init = false){
 							'#_BOOKEDSPACES' => array( 'desc' => 'Shows the amount of currently booked spaces for the event.' ),
 							'#_PENDINGSPACES' => array( 'desc' => 'Shows the amount of pending spaces for the event.' ),
 							'#_SPACES' => array( 'desc' => 'Shows the total spaces for the event.' ),
-							'#_ATTENDEES' => array( 'desc' => 'Shows the list of user avatars attending events.' ),
+							'#_ATTENDEES' => array( 'desc' => 'Shows the list of user avatars attending the event.' ),
+							'#_ATTENDEESLIST' => array( 'desc' => 'Shows the list of people attending the event.' ),
+							'#_ATTENDEESPENDINGLIST' => array( 'desc' => 'Shows the list of people with a pending booking for the event.' ),
 							'#_BOOKINGSURL' => array( 'desc' => 'Shows the url to the admin, front-end or buddypress (if activated) bookings management page for this event. Only shown if user is logged in and able to manage bookings.' ),
 							'#_BOOKINGSLINK' => array( 'desc' => 'Shows a link to the admin, front-end or buddypress (if activated) bookings management page for this event. Only shown if user is logged in and able to manage bookings.' ),
-							'#_EVENTPRICERANGE' => array( 'desc' => 'Shows a "maximum - minimum" price range, or a single price if there is no range. Price is formatted according to currency formatting in your settings page.' ),
+							'#_EVENTPRICERANGE' => array( 'desc' => 'Shows a "maximum - minimum" price range for available tickets at the time of display, or a single price if there is no range. Once bookings are closed this will show a 0 value, if you have enabled \'Show unavailable tickets\' in your booking settings these will be included. Price is formatted according to currency formatting in your settings page.' ),
+							'#_EVENTPRICERANGEALL' => array( 'desc' => 'Like #_EVENTPRICERANGE but shows all tickets price range whether or not bookings or individual tickets are available.' ),
 							'#_EVENTPRICEMIN' => array( 'desc' => 'Shows the lowest ticket price for this event.' ),
 							'#_EVENTPRICEMAX' => array( 'desc' => 'Shows the highest ticket price for this event.' ),								
 						)
@@ -139,11 +146,13 @@ function em_docs_init($force_init = false){
 							'#_CONTACTNAME' => array( 'desc' => 'Name of the contact person for this event (as shown in the dropdown when adding an event).' ),
 							'#_CONTACTUSERNAME' => array( 'desc' => 'Contact person\'s username.' ),
 							'#_CONTACTEMAIL' => array( 'desc' => 'E-mail of the contact person for this event.' ),
+							'#_CONTACTURL' => array( 'desc' => 'Website of the contact person for this event.' ),
 							'#_CONTACTPHONE' => array( 'desc' => 'Phone number of the contact person for this event. Can be set in the user profile page.' ),
 							'#_CONTACTAVATAR' => array( 'desc' => 'Contact person\'s avatar.' ),
 							'#_CONTACTPROFILELINK' => array( 'desc' => 'Contact person\'s "Profile" link. Only works with BuddyPress enabled.' ),
 							'#_CONTACTPROFILEURL' => array( 'desc' => 'Contact person\'s profile url. Only works with BuddyPress enabled.' ),
-							'#_CONTACTID' => array( 'desc' => 'Contact person\'s WordPress user ID.')
+							'#_CONTACTID' => array( 'desc' => 'Contact person\'s WordPress user ID.'),
+							'#_CONTACTMETA' => array( 'desc' => 'Display any user meta of a WordPress account by including the meta key, e.g. #_CONTACTMETA{dbem_phone}'),
 						)
 					),
 					'iCal/Calendar' => array(
@@ -157,13 +166,15 @@ function em_docs_init($force_init = false){
 				),
 				'categories' => array(
 					'Category Details' => array(
+						'desc' => 'You can use these when displaying categories or for showing the first available category in an event format.',
 						'placeholders' => array(
-							'#_CATEGORYNAME' => array( 'desc' => 'Shows the category name of the event.' ),
-							'#_CATEGORYID' => array( 'desc' => 'Shows the category ID of the event.' ),
-							'#_CATEGORYIMAGE' => array( 'desc' => 'Shows the event image, if available.' ),
-							'#_CATEGORYIMAGE{x,y}' => array( 'desc' => 'Shows the category image thumbnail, x and y are width and height respectively, both being numbers e.g. <code>#_CATEGORYIMAGE{100,100}</code>' ),
+							'#_CATEGORYNAME' => array( 'desc' => 'Shows the category name.' ),
+							'#_CATEGORYID' => array( 'desc' => 'Shows the category ID.' ),
+							'#_CATEGORYSLUG' => array( 'desc' => 'Shows the category slug.' ),
+							'#_CATEGORYIMAGE' => array( 'desc' => 'Shows the category image, if available.' ),
+							'#_CATEGORYIMAGE{x,y}' => array( 'desc' => 'Shows the category image thumbnail if available, x and y are width and height respectively, both being numbers e.g. <code>#_CATEGORYIMAGE{100,100}</code>' ),
 							'#_CATEGORYIMAGEURL' => array( 'desc' => 'Shows the category image url, if available.' ),
-							'#_CATEGORYNOTES' => array( 'desc' => 'Shows the location description.' )
+							'#_CATEGORYNOTES' => array( 'desc' => 'Shows the category description.' )
 						)
 					),			
 					'Related Events' => array(
@@ -188,19 +199,20 @@ function em_docs_init($force_init = false){
 							'#_LOCATIONPOSTCODE' => array( 'desc' => 'Displays the postcode.' ),
 							'#_LOCATIONREGION' => array( 'desc' => 'Displays the region.' ),
 							'#_LOCATIONCOUNTRY' => array( 'desc' => 'Displays the country.' ),
+							'#_LOCATIONLONGITUDE' => array( 'desc' => 'Displays the longitude, used for locating in Google Maps.' ),
+							'#_LOCATIONLATITUDE' => array( 'desc' => 'Displays the latitude, used for locating in Google Maps.' ),
 							'#_LOCATIONMAP' => array( 'desc' => 'Displays a google map showing where the event is located (Will not show if maps are disabled in the settings page)' ),
 							'#_LOCATIONNOTES' => array( 'desc' => 'Shows the location description.' ),
 							'#_LOCATIONEXCERPT' => array( 'desc' => 'If you added a <a href="http://en.support.wordpress.com/splitting-content/more-tag/">more tag</a> to your location description, only the content before this tag will show (currently, no read more link is added).' ),
 							'#_LOCATIONIMAGE' => array( 'desc' => 'Shows the location image.' ),
 							'#_LOCATIONIMAGE{x,y}' => array( 'desc' => 'Shows the location image thumbnail, x and y are width and height respectively, both being numbers e.g. <code>#_LOCATIONIMAGE{100,100}</code>' ),
-							'#_LOCATIONIMAGEURL' => array( 'desc' => 'Shows the cattegory image url, if available.' ),
+							'#_LOCATIONIMAGEURL' => array( 'desc' => 'Shows the location image url, if available.' ),
 							'#_LOCATIONFULLLINE' => array( 'desc' => 'Shows a comma-seperated line of location information, ommitting blanks (format of address, town, state, postcode, region' ),
-							'#_LOCATIONFULLBR' => array( 'desc' => 'Shows the cattegory image url, if available.' ),
 							'#_LOCATIONFULLBR' => array( 'desc' => 'Shows a line-break (br tag) seperated location information, ommitting blanks (format of address, town, state, postcode, region' ),
 						)
 					),
 					'Custom Attributes' => array(
-						'desc' => 'Events Manager allows you to create dynamic attributes to your locations, which act as extra information fields for your locations (e.g. "Dress Code"). For more information see <a href="http://wp-events-plugin.com/documentation/categories-and-attributes/">our online documentation</a> for more info on attributes.',
+						'desc' => 'Events Manager allows you to create dynamic attributes to your locations, which act as extra information fields for your locations (e.g. "Dress Code"). For more information see <a href="http://wp-events-plugin.com/documentation/event-attributes/">our online documentation</a> for more info on attributes.',
 						'placeholders' => array( 
 							'#_LATT{key}' => array('desc'=> 'This key will appear as an option when adding attributes to your location.'),
 							'#_LATT{key}{alternative text}' => array('desc'=> 'This key will appear as an option when adding attributes to your location. The text in the second braces will appear if the attribute is not defined or left blank for that location.'),
@@ -226,9 +238,10 @@ function em_docs_init($force_init = false){
 					),
 				),
 				'bookings' => array(
-					'Booking Person Information' => array(
+					'Individual Booking Information' => array(
 						'desc' => 'When a specific booking is displayed (on screen and on email), you can use these placeholders to show specific information about the booking. Event and Location placeholders are also available in these cases.',
 						'placeholders' => array(
+							'#_BOOKINGID' => array( 'desc' => 'The unique ID of this booking, useful if you are making your own customizations to this plugin.' ),
 							'#_BOOKINGNAME' => array( 'desc' => 'Name of person who made the booking.' ),
 							'#_BOOKINGEMAIL' => array( 'desc' => 'Email of person who made the booking.' ),
 							'#_BOOKINGPHONE' => array( 'desc' => 'Phone number of person who made the booking.' ),
@@ -238,8 +251,10 @@ function em_docs_init($force_init = false){
 							'#_BOOKINGTICKETDESCRIPTION' => array( 'desc' => 'Description of the ticket booked. Useful in single ticket mode, if multiple tickets are booked a random ticket is used.' ),
 							'#_BOOKINGTICKETPRICE' => array( 'desc' => 'Booked ticket price with currency symbol (e.g. $ 10.00). Useful in single ticket mode, if multiple tickets are booked a random ticket is used.' ),
 							'#_BOOKINGTICKETS' => array( 'desc' => 'A list of booked tickets. You can modify this by using template files and modifying templates/emails/bookingtickets.php' ),
-							'#_BOOKINGFORMCUSTOM{field_id}' => array( 'desc' => sprintf('(<a href="%s">pro only</a>) Shows booking form custom fields. The field_id value must match that of your custom booking form field.','http://wp-events-plugin.com/upgrade/') ),
-							'#_BOOKINGFORMCUSTOMREG{field_id}' => array( 'desc' => sprintf('(<a href="%s">pro only</a>) Shows booking form custom fields that are used for guest user registration. The field_id value must match that of your custom booking form field.','http://wp-events-plugin.com/upgrade/') )
+							'#_BOOKINGFORMCUSTOM{field_id}' => array( 'desc' => sprintf('(<a href="%s">pro only</a>) Shows booking form custom fields. The field_id value must match that of your custom booking form field.','http://wp-events-plugin.com/features/') ),
+							'#_BOOKINGFORMCUSTOMREG{field_id}' => array( 'desc' => sprintf('(<a href="%s">pro only</a>) Shows booking form custom fields that are used for guest user registration. The field_id value must match that of your custom booking form field.','http://wp-events-plugin.com/features/') ),
+							'#_BOOKINGFORMCUSTOMFIELDS' => array( 'desc' => sprintf('(<a href="%s">pro only</a>) Generates a list of booking form custom fields that are used in the booking.','http://wp-events-plugin.com/features/') ),
+							'#_BOOKINGATTENDEES' => array('desc' => sprintf('(<a href="%s">pro only</a>) Generates a list of attendee information displaying the filled in form data for each attendee (requires individual attendee forms enabled for the event). This list is split by ticket type, then by individual attendee.','http://wp-events-plugin.com/features/')), //coupons too!
 						)
 					),
 					'Pricing Information' => array(
@@ -269,9 +284,19 @@ function em_docs_init($force_init = false){
 						)
 					),
 					'Gateway-Specific Information' => array(
-						'desc' => '',
+						'desc' => 'Information pertaining to speicifc gateways. '. sprintf('Requires <a href="%s">Events Manager Pro</a>','http://wp-events-plugin.com/features/'),
 						'placeholders' => array(
 							'#_BOOKINGTXNID' => array( 'desc' => '<em>Online Payments Only</em> - Prints the transaction ID of this booking if available.' )
+						)
+					),
+					'Coupon Information' => array(
+						'desc' => 'When a booking has been made with a coupon, you can display coupon information using these placeholders. If no coupon is used, nothing will be shown. '.sprintf('Requires <a href="%s">Events Manager Pro</a>','http://wp-events-plugin.com/features/'),
+						'placeholders' => array(
+							'#_BOOKINGCOUPON' => array('desc' => 'Displays the coupon code followed by the amount/percentage discounted.'),
+							'#_BOOKINGCOUPONCODE' => array('desc' => 'Displays the coupon code used.'),
+							'#_BOOKINGCOUPONNAME' => array('desc' => 'Displays the name given to this coupon.'),
+							'#_BOOKINGCOUPONDISCOUNT' => array('desc' => 'Displays amount/percentage discounted (e.g. 25% Off).'),
+							'#_BOOKINGCOUPONDESCRIPTION' => array('desc' => 'Displays the coupon description.'),
 						)
 					),
 				),

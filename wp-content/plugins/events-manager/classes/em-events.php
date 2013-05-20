@@ -65,8 +65,8 @@ class EM_Events extends EM_Object implements Iterator {
 		
 		//Get ordering instructions
 		$EM_Event = new EM_Event();
-		$accepted_fields = $EM_Event->get_fields(true);
-		$orderby = self::build_sql_orderby($args, $accepted_fields, get_option('dbem_events_default_order'));
+		$EM_Location = new EM_Location();
+		$orderby = self::build_sql_orderby($args, array_keys(array_merge($EM_Event->fields, $EM_Location->fields)), get_option('dbem_events_default_order'));
 		//Now, build orderby sql
 		$orderby_sql = ( count($orderby) > 0 ) ? 'ORDER BY '. implode(', ', $orderby) : '';
 		
@@ -143,7 +143,9 @@ class EM_Events extends EM_Object implements Iterator {
 		}else{
 			$events = $array;
 		}
+		$event_ids = array();
 		foreach ($events as $EM_Event){
+		    $event_ids[] = $EM_Event->event_id;
 			$results[] = $EM_Event->delete();
 		}
 		//TODO add better error feedback on events delete fails
@@ -163,6 +165,10 @@ class EM_Events extends EM_Object implements Iterator {
 		$EM_Event_old = $EM_Event; //When looping, we can replace EM_Event global with the current event in the loop
 		//Can be either an array for the get search or an array of EM_Event objects
 		$func_args = func_get_args();
+		$page = 1; //default
+		if( !array_key_exists('page',$args) && !empty($_REQUEST['pno']) && is_numeric($_REQUEST['pno']) ){
+			$page = $args['page'] = $_REQUEST['pno'];
+		}
 		if( is_object(current($args)) && get_class((current($args))) == 'EM_Event' ){
 			$func_args = func_get_args();
 			$events = $func_args[0];
@@ -170,14 +176,14 @@ class EM_Events extends EM_Object implements Iterator {
 			$args = apply_filters('em_events_output_args', self::get_default_search($args), $events);
 			$limit = ( !empty($args['limit']) && is_numeric($args['limit']) ) ? $args['limit']:false;
 			$offset = ( !empty($args['offset']) && is_numeric($args['offset']) ) ? $args['offset']:0;
-			$page = ( !empty($args['page']) && is_numeric($args['page']) ) ? $args['page']:1;
+			$page = ( !empty($args['page']) && is_numeric($args['page']) ) ? $args['page']:$page;
 			$events_count = count($events);
 		}else{
 			//Firstly, let's check for a limit/offset here, because if there is we need to remove it and manually do this
-			$args = apply_filters('em_events_output_args', self::get_default_search($args) );
+			$args = apply_filters('em_events_output_args', $args );
 			$limit = ( !empty($args['limit']) && is_numeric($args['limit']) ) ? $args['limit']:false;
 			$offset = ( !empty($args['offset']) && is_numeric($args['offset']) ) ? $args['offset']:0;
-			$page = ( !empty($args['page']) && is_numeric($args['page']) ) ? $args['page']:1;
+			$page = ( !empty($args['page']) && is_numeric($args['page']) ) ? $args['page']:$page;
 			$args_count = $args;
 			$args_count['limit'] = false;
 			$args_count['offset'] = false;
@@ -206,8 +212,8 @@ class EM_Events extends EM_Object implements Iterator {
 			//Pagination (if needed/requested)
 			if( !empty($args['pagination']) && !empty($limit) && $events_count > $limit ){
 				//Show the pagination links (unless there's less than $limit events)
-				$page_link_template = preg_replace('/(&|\?)page=\d+/i','',$_SERVER['REQUEST_URI']);
-				$page_link_template = em_add_get_params($page_link_template, array('page'=>'%PAGE%'), false); //don't html encode, so em_paginate does its thing;
+				$page_link_template = preg_replace('/(&|\?)pno=\d+/i','',$_SERVER['REQUEST_URI']);
+				$page_link_template = em_add_get_params($page_link_template, array('pno'=>'%PAGE%'), false); //don't html encode, so em_paginate does its thing;
 				$output .= apply_filters('em_events_output_pagination', em_paginate( $page_link_template, $events_count, $limit, $page), $page_link_template, $events_count, $limit, $page);
 			}
 		} else {
@@ -234,8 +240,9 @@ class EM_Events extends EM_Object implements Iterator {
 		return apply_filters('em_events_can_manage', false, $event_ids);
 	}
 	
-	function get_post_search($args = array()){
+	function get_post_search($args = array(), $filter = false){
 		if( !empty($_REQUEST['em_search']) && empty($args['search']) ) $_REQUEST['search'] = $_REQUEST['em_search'];
+		if( !empty($_REQUEST['category']) && $_REQUEST['category'] == -1  ) $_REQUEST['category'] = $args['category'] = 0;
 		$accepted_searches = apply_filters('em_accepted_searches', array('scope','search','category','country','state','region','town'), $args);
 		foreach($_REQUEST as $post_key => $post_value){
 			if( in_array($post_key, $accepted_searches) && !empty($post_value) ){
@@ -244,6 +251,15 @@ class EM_Events extends EM_Object implements Iterator {
 				}
 				if($post_value != ',' ){
 					$args[$post_key] = $post_value;
+				}elseif( $post_value == ',' && $post_key == 'scope' ){
+					unset($args['scope']);
+				}
+			}
+		}
+		if( $filter ){
+			foreach($args as $arg_key => $arg_value){
+				if( !in_array($arg_key, $accepted_searches) ){
+					unset($args[$arg_key]);
 				}
 			}
 		}
@@ -256,14 +272,16 @@ class EM_Events extends EM_Object implements Iterator {
 	function build_sql_conditions( $args = array() ){
 		$conditions = parent::build_sql_conditions($args);
 		if( !empty($args['search']) ){
-			$like_search = array('event_name',EM_EVENTS_TABLE.'.post_content','location_name','location_address','location_town','location_postcode','location_state','location_country');
+			$like_search = array('event_name',EM_EVENTS_TABLE.'.post_content','location_name','location_address','location_town','location_postcode','location_state','location_country','location_region');
 			$conditions['search'] = "(".implode(" LIKE '%{$args['search']}%' OR ", $like_search). "  LIKE '%{$args['search']}%')";
 		}
 		if( array_key_exists('status',$args) && is_numeric($args['status']) ){
 			$null = ($args['status'] == 0) ? ' OR `event_status` = 0':'';
 			$conditions['status'] = "(`event_status`={$args['status']}{$null} )";
+		}elseif( array_key_exists('status',$args) && $args['status'] === null ){
+		    $conditions['status'] = "(`event_status` IS NULL )"; //by default, we don't ever show deleted items
 		}elseif( empty($args['status']) || $args['status'] != 'all'){
-			$conditions['status'] = "(`event_status` IS NOT NULL )"; //by default, we don't show deleted items
+			$conditions['status'] = "(`event_status` IS NOT NULL )"; //by default, we don't ever show deleted items
 		}
 		//private events
 		if( empty($args['private']) ){
@@ -271,12 +289,20 @@ class EM_Events extends EM_Object implements Iterator {
 		}elseif( !empty($args['private_only']) ){
 			$conditions['private_only'] = "(`event_private`=1)";
 		}
-		if( EM_MS_GLOBAL && array_key_exists('blog',$args) && is_numeric($args['blog']) ){
-			if( is_main_site($args['blog']) ){
-				$conditions['blog'] = "(".EM_EVENTS_TABLE.".blog_id={$args['blog']} OR ".EM_EVENTS_TABLE.".blog_id IS NULL)";
-			}else{
-				$conditions['blog'] = "(".EM_EVENTS_TABLE.".blog_id={$args['blog']})";
-			}
+		if( EM_MS_GLOBAL && !empty($args['blog']) ){
+		    if( is_numeric($args['blog']) ){
+				if( is_main_site($args['blog']) ){
+					$conditions['blog'] = "(".EM_EVENTS_TABLE.".blog_id={$args['blog']} OR ".EM_EVENTS_TABLE.".blog_id IS NULL)";
+				}else{
+					$conditions['blog'] = "(".EM_EVENTS_TABLE.".blog_id={$args['blog']})";
+				}
+		    }else{
+		        if( !is_array($args['blog']) && preg_match('/^([\-0-9],?)+$/', $args['blog']) ){
+		            $conditions['blog'] = "(".EM_EVENTS_TABLE.".blog_id IN ({$args['blog']}) )";
+			    }elseif( is_array($args['blog']) && $this->array_is_numeric($args['blog']) ){
+			        $conditions['blog'] = "(".EM_EVENTS_TABLE.".blog_id IN (".implode(',',$args['blog']).") )";
+			    }
+		    }
 		}
 		if( $args['bookings'] === 'user' && is_user_logged_in()){
 			//get bookings of user
@@ -329,12 +355,9 @@ class EM_Events extends EM_Object implements Iterator {
 			'private_only' => false,
 			'post_id' => false
 		);
-		if(EM_MS_GLOBAL){
-			global $bp;
-			if( !is_main_site() && !array_key_exists('blog', $array) ){
-				$array['blog'] = get_current_blog_id();
-			}elseif( empty($array['blog']) && get_site_option('dbem_ms_global_events') ) {
-				$array['blog'] = false;
+		if( EM_MS_GLOBAL && !is_admin() ){
+			if( empty($array['blog']) && is_main_site() && get_site_option('dbem_ms_global_events') ){
+			    $array['blog'] = false;
 			}
 		}
 		if( is_admin() ){

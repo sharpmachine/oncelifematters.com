@@ -1,9 +1,9 @@
 <?php
 	global $wpdb, $EM_Location, $EM_Notices;
 	//add new button will only appear if called from em_location_admin template tag, or if the $show_add_new var is set	
-	if(!empty($show_add_new) && current_user_can('edit_locations')) echo '<a class="em-button button add-new-h2" href="'.em_add_get_params($_SERVER['REQUEST_URI'],array('action'=>'edit','scope'=>null,'status'=>null,'location_id'=>null)).'">Add New</a>';
+	if(!empty($show_add_new) && current_user_can('edit_locations')) echo '<a class="em-button button add-new-h2" href="'.em_add_get_params($_SERVER['REQUEST_URI'],array('action'=>'edit','scope'=>null,'status'=>null,'location_id'=>null)).'">'.__('Add New','dbem').'</a>';
 ?>
-<?php echo $EM_Notices; ?>			  
+<?php if(!is_admin()) echo $EM_Notices; ?>			  
 <form id='locations-filter' method='post' action=''>
 	<input type='hidden' name='pno' value='<?php echo $page ?>' />
 	<div class="subsubsub">
@@ -17,7 +17,7 @@
 	<div class='tablenav'>					
 		<div class="alignleft actions">
 			<select name="action">
-				<option value="" selected="selected"><?php _e ( 'Bulk Actions' ); ?></option>
+				<option value="" selected="selected"><?php _e ( 'Bulk Actions', 'dbem' ); ?></option>
 				<option value="location_delete"><?php _e ( 'Delete selected','dbem' ); ?></option>
 			</select> 
 			<input type="submit" value="<?php _e ( 'Apply' ); ?>" id="doaction2" class="button-secondary action" /> 
@@ -49,25 +49,26 @@
 			</tr>             
 		</tfoot>
 		<tbody>
-			<?php $i = 1; ?>
-			<?php foreach ($locations as $EM_Location) : ?>	
-				<?php if( $i >= $offset && $i <= $offset+$limit ): ?>
-					<tr>
-						<td><input type='checkbox' class ='row-selector' value='<?php echo $EM_Location->location_id ?>' name='locations[]'/></td>
-						<td>
-							<?php if( $EM_Location->can_manage('edit_events','edit_others_events') ): ?>
-							<a href='<?php echo esc_url($EM_Location->get_edit_url()); ?>'><?php echo $EM_Location->location_name ?></a>
-							<?php else: ?>
-							<strong><?php echo $EM_Location->location_name ?></strong> - 
-							<a href='<?php echo $EM_Location->output('#_LOCATIONURL'); ?>'><?php _e('View') ?></a>
-							<?php endif; ?>
-						</td>
-						<td><?php echo implode(',', array($EM_Location->location_address,$EM_Location->location_town,$EM_Location->location_postcode)); ?></td>
-						<td><?php echo $EM_Location->location_state ?></td>  
-						<td><?php echo $EM_Location->get_country() ?></td>                             
-					</tr>
-				<?php endif; ?>
-				<?php $i++; ?> 
+			<?php $rowno = 0; ?>
+			<?php foreach ($locations as $EM_Location) : ?>
+				<?php
+					$class = ($rowno % 2) ? 'alternate' : '';
+					$rowno++;
+				?>
+				<tr class="<?php echo $class; ?>">
+					<td><input type='checkbox' class ='row-selector' value='<?php echo $EM_Location->location_id ?>' name='locations[]'/></td>
+					<td>
+						<?php if( $EM_Location->can_manage('edit_events','edit_others_events') ): ?>
+						<a href='<?php echo esc_url($EM_Location->get_edit_url()); ?>'><?php echo $EM_Location->location_name ?></a>
+						<?php else: ?>
+						<strong><?php echo $EM_Location->location_name ?></strong> - 
+						<a href='<?php echo $EM_Location->output('#_LOCATIONURL'); ?>'><?php _e('View') ?></a>
+						<?php endif; ?>
+					</td>
+					<td><?php echo implode(', ', array($EM_Location->location_address,$EM_Location->location_town,$EM_Location->location_postcode)); ?></td>
+					<td><?php echo $EM_Location->location_state ?></td>  
+					<td><?php echo $EM_Location->get_country() ?></td>                             
+				</tr>
 			<?php endforeach; ?>
 		</tbody>
 	</table>

@@ -189,7 +189,7 @@ class blcContainer {
 			$field = $this->default_field;
 		}
 		
-		$w = &$this->get_wrapped_object();
+		$w = $this->get_wrapped_object();
 		return $w->$field;
 	}
 	
@@ -205,7 +205,7 @@ class blcContainer {
    * @return bool|WP_Error True on success, an error object if something went wrong.
    */
 	function update_field($field, $new_value, $old_value = ''){
-		$w = &$this->get_wrapped_object();
+		$w = $this->get_wrapped_object();
 		$w->$field = $new_value;
 		return $this->update_wrapped_object();
 	}
@@ -658,7 +658,7 @@ class blcContainerHelper {
    * @param string $purpose Optional code indicating how the retrieved containers will be used.
    * @param string $fallback The fallback container type to use for unrecognized containers.
    * @param bool $load_wrapped_objects Preload wrapped objects regardless of purpose.
-   * @return array of blcContainer indexed by "container_type|container_id"
+   * @return blcContainer[] Array of blcContainer indexed by "container_type|container_id"
    */
 	static function get_containers( $containers, $purpose = '', $fallback = '', $load_wrapped_objects = false ){
 		global $wpdb; /* @var wpdb $wpdb */
@@ -733,7 +733,7 @@ class blcContainerHelper {
    * Retrieve link containers that need to be synchronized (parsed).
    *
    * @param integer $max_results The maximum number of containers to return. Defaults to returning all unsynched containers. 
-   * @return array of blcContainer
+   * @return blcContainer[]
    */
 	static function get_unsynched_containers($max_results = 0){
 		global $wpdb; /* @var wpdb $wpdb */
@@ -794,7 +794,7 @@ class blcContainerHelper {
 		$containers = $module_manager->get_active_by_category('container');
 		
 		foreach($containers as $module_id => $module_data){
-			if ( $container_manager = &$module_manager->get_module($module_id) ){
+			if ( $container_manager = $module_manager->get_module($module_id) ){
 				$fields = $container_manager->get_parseable_fields();
 				$container_type = $container_manager->container_type;
 				foreach($formats as $format => $timestamp){
@@ -894,5 +894,3 @@ class blcContainerHelper {
 		}
 	}
 }
-
-?>

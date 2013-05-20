@@ -47,8 +47,8 @@ function em_get_events_list_shortcode($atts, $format='') {
 	$atts = (array) $atts;
 	$atts['format'] = ($format != '' || empty($atts['format'])) ? $format : $atts['format']; 
 	$atts['format'] = html_entity_decode($atts['format']); //shorcode doesn't accept html
-	$atts['page'] = ( !empty($atts['page']) && is_numeric($atts['page']) )? $atts['page'] : 1;
-	$atts['page'] = ( !empty($_GET['page']) && is_numeric($_GET['page']) )? $_GET['page'] : $atts['page'];
+	$pno = ( !empty($_GET['pno']) && is_numeric($_GET['pno']) )? $_GET['pno'] : 1;
+	$atts['page'] = ( !empty($atts['page']) && is_numeric($atts['page']) )? $atts['page'] : $pno;
 	return EM_Events::output( $atts );
 }
 add_shortcode ( 'events_list', 'em_get_events_list_shortcode' );
@@ -59,16 +59,27 @@ add_shortcode ( 'events_list', 'em_get_events_list_shortcode' );
  * @return string
  */
 function em_get_event_shortcode($atts, $format='') {
+    global $EM_Event, $post;
+    $the_event = is_object($EM_Event) ? clone($EM_Event):null; //save global temporarily
 	$atts = (array) $atts;
 	$atts['format'] = ($format != '' || empty($atts['format'])) ? $format : $atts['format']; 
 	$atts['format'] = html_entity_decode($atts['format']); //shorcode doesn't accept html
 	if( !empty($atts['event']) && is_numeric($atts['event']) ){
 		$EM_Event = em_get_event($atts['event']);
-		return ( !empty($atts['format']) ) ? $EM_Event->output($atts['format']) : $EM_Event->output_single();
+		$return = ( !empty($atts['format']) ) ? $EM_Event->output($atts['format']) : $EM_Event->output_single();
 	}elseif( !empty($atts['post_id']) && is_numeric($atts['post_id']) ){
 		$EM_Event = em_get_event($atts['post_id'], 'post_id');
-		return ( !empty($atts['format']) ) ? $EM_Event->output($atts['format']) : $EM_Event->output_single();
+		$return = ( !empty($atts['format']) ) ? $EM_Event->output($atts['format']) : $EM_Event->output_single();
 	}
+	//no specific event or post id supplied, check globals
+	if( !empty($EM_Event) ){
+	    $return = ( !empty($atts['format']) ) ? $EM_Event->output($atts['format']) : $EM_Event->output_single();
+	}elseif( $post->post_type == EM_POST_TYPE_EVENT ){
+	    $EM_Event = em_get_event($post->ID, 'post_id');
+	    $return = ( !empty($atts['format']) ) ? $EM_Event->output($atts['format']) : $EM_Event->output_single();
+	}
+    $EM_Event = is_object($the_event) ? $the_event:$EM_Event; //reset global
+    return $return;
 }
 add_shortcode ( 'event', 'em_get_event_shortcode' );
 
@@ -80,7 +91,7 @@ function em_get_locations_list_shortcode( $atts, $format='' ) {
 	$atts['format'] = ($format != '' || empty($atts['format'])) ? $format : $atts['format']; 
 	$atts['format'] = html_entity_decode($atts['format']); //shorcode doesn't accept html
 	$atts['page'] = ( !empty($atts['page']) && is_numeric($atts['page']) )? $atts['page'] : 1;
-	$atts['page'] = ( !empty($_GET['page']) && is_numeric($_GET['page']) )? $_GET['page'] : $atts['page'];
+	$atts['page'] = ( !empty($_GET['pno']) && is_numeric($_GET['pno']) )? $_GET['pno'] : $atts['page'];
 	$args['orderby'] = !empty($args['orderby']) ? $args['orderby'] : get_option('dbem_locations_default_orderby');
 	$args['order'] = !empty($args['order']) ? $args['order'] : get_option('dbem_locations_default_order');
 	return EM_Locations::output( $atts );
@@ -103,6 +114,14 @@ function em_get_location_shortcode($atts, $format='') {
 		$EM_Location = em_get_location($atts['post_id'],'post_id');
 		return ( !empty($atts['format']) ) ? $EM_Location->output($atts['format']) : $EM_Location->output_single();
 	}
+	//no specific location or post id supplied, check globals
+	global $EM_Location, $post;
+	if( !empty($EM_Location) ){
+		return ( !empty($atts['format']) ) ? $EM_Location->output($atts['format']) : $EM_Location->output_single();
+	}elseif( $post->post_type == EM_POST_TYPE_LOCATION ){
+		$EM_Location = em_get_location($post->ID,'post_id');
+		return ( !empty($atts['format']) ) ? $EM_Location->output($atts['format']) : $EM_Location->output_single();
+	}
 }
 add_shortcode ( 'location', 'em_get_location_shortcode' );
 
@@ -115,6 +134,25 @@ function em_get_categories_shortcode($args, $format=''){
 	return EM_Categories::output($args);
 }
 add_shortcode ( 'categories_list', 'em_get_categories_shortcode' );
+
+/**
+ * Shows a single location according to given specifications. Accepts any event query attribute.
+ * @param array $atts
+ * @return string
+ */
+function em_get_event_category_shortcode($atts, $format='') {
+	$atts = (array) $atts;
+	$atts['format'] = ($format != '' || empty($atts['format'])) ? $format : $atts['format']; 
+	$atts['format'] = html_entity_decode($atts['format']); //shorcode doesn't accept html
+	if( !empty($atts['category']) && is_numeric($atts['category']) ){
+		$EM_Category = new EM_Category($atts['category']);
+		return ( !empty($atts['format']) ) ? $EM_Category->output($atts['format']) : $EM_Category->output_single();
+	}elseif( !empty($atts['post_id']) && is_numeric($atts['post_id']) ){
+		$EM_Category = new EM_Category($atts['post_id'],'post_id');
+		return ( !empty($atts['format']) ) ? $EM_Category->output($atts['format']) : $EM_Category->output_single();
+	}
+}
+add_shortcode ( 'event_category', 'em_get_event_category_shortcode' );
 
 /**
  * DO NOT DOCUMENT! This should be replaced with shortcodes events-link and events_uri
@@ -203,6 +241,8 @@ add_shortcode ( 'event_search_form', 'em_get_event_search_form_shortcode');
  * @return string
  */
 function em_get_events_list_grouped_shortcode($args = array(), $format = ''){
-	return em_get_events_list_grouped($args,$format);
+	$args['format'] = ($format != '' || empty($args['format'])) ? $format : $args['format']; 
+	$args['format'] = html_entity_decode($args['format']); //shorcode doesn't accept html
+	return em_get_events_list_grouped($args);
 }
 add_shortcode ( 'events_list_grouped', 'em_get_events_list_grouped_shortcode' );

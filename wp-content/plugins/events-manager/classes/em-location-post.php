@@ -5,9 +5,16 @@ class EM_Location_Post {
 		if( !is_admin() ){
 			//override single page with formats? 
 			add_filter('the_content', array('EM_Location_Post','the_content'));
-			//display as page template?
-			if( get_option('dbem_cp_locations_template_page') ){
+			//display as page or other template?
+			if( get_option('dbem_cp_locations_template') ){
 				add_filter('single_template',array('EM_Location_Post','single_template'));
+			}
+			//add classes to body and post_class()
+			if( get_option('dbem_cp_locations_post_class') ){
+			    add_filter('post_class', array('EM_Location_Post','post_class'), 10, 3);
+			}
+			if( get_option('dbem_cp_locations_body_class') ){
+			    add_filter('body_class', array('EM_Location_Post','body_class'), 10, 3);
 			}
 		}
 		add_action('parse_query', array('EM_Location_Post','parse_query'));
@@ -20,14 +27,42 @@ class EM_Location_Post {
 	 */
 	function single_template($template){
 		global $post;
-		if( $post->post_type == EM_POST_TYPE_LOCATION ){
-			$template = locate_template(array('page.php','index.php'),false);
+		if( !locate_template('single-'.EM_POST_TYPE_LOCATION.'.php') && $post->post_type == EM_POST_TYPE_LOCATION ){
+			//do we have a default template to choose for events?
+			if( get_option('dbem_cp_locations_template') == 'page' ){
+				$post_templates = array('page.php','index.php');
+			}else{
+			    $post_templates = array(get_option('dbem_cp_locations_template'));
+			}
+			if( !empty($post_templates) ){
+			    $post_template = locate_template($post_templates,false);
+			    if( !empty($post_template) ) $template = $post_template;
+			}
 		}
 		return $template;
 	}
 	
+	function post_class( $classes, $class, $post_id ){
+	    $post = get_post($post_id);
+	    if( $post->post_type == EM_POST_TYPE_LOCATION ){
+	        foreach( explode(' ', get_option('dbem_cp_locations_post_class')) as $class ){
+	            $classes[] = esc_attr($class);
+	        }
+	    }
+	    return $classes;
+	}
+	
+	function body_class( $classes ){
+	    if( em_is_location_page() ){
+	        foreach( explode(' ', get_option('dbem_cp_locations_body_class')) as $class ){
+	            $classes[] = esc_attr($class);
+	        }
+	    }
+	    return $classes;
+	}
+	
 	function the_content( $content ){
-		global $post;
+		global $post, $EM_Location;
 		if( $post->post_type == EM_POST_TYPE_LOCATION ){
 			if( is_archive() || is_search() ){
 				if( get_option('dbem_cp_locations_archive_formats') ){
@@ -37,15 +72,17 @@ class EM_Location_Post {
 			}else{
 				if( get_option('dbem_cp_locations_formats') && !post_password_required() ){
 					$EM_Location = em_get_location($post);
-					$content = $EM_Location->output_single();
+					ob_start();
+					em_locate_template('templates/location-single.php',true);
+					$content = ob_get_clean();
 				}
 			}
 		}
 		return $content;
 	}
 	
-	function parse_query( ){
-		global $wp_query;
+	function parse_query(){
+	    global $wp_query;
 		if( !empty($wp_query->query_vars['post_type']) && $wp_query->query_vars['post_type'] == EM_POST_TYPE_LOCATION ){
 			if( is_admin() ){
 				$wp_query->query_vars['orderby'] = (!empty($_REQUEST['orderby'])) ? $_REQUEST['orderby']:'title';

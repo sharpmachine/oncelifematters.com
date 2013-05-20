@@ -1,9 +1,11 @@
 <?php
 /**
  * AddQuicktag - Settings
- * @license GPLv3
- * @package AddQuicktag
+ * 
+ * @license    GPLv3
+ * @package    AddQuicktag
  * @subpackage AddQuicktag Settings
+ * @author     Frank Bueltge <frank@bueltge.de>
  */
 
 if ( ! function_exists( 'add_action' ) ) {
@@ -13,7 +15,9 @@ if ( ! function_exists( 'add_action' ) ) {
 
 class Add_Quicktag_Im_Export extends Add_Quicktag_Settings {
 	
-	static private $classobj = NULL;
+	protected static $classobj = NULL;
+	// post types for the settings
+	private static $post_types_for_js;
 	
 	/**
 	 * Handler for the action 'init'. Instantiates this class.
@@ -22,7 +26,7 @@ class Add_Quicktag_Im_Export extends Add_Quicktag_Settings {
 	 * @since   2.0.0
 	 * @return  $classobj
 	 */
-	public function get_object() {
+	public static function get_object() {
 		
 		if ( NULL === self :: $classobj ) {
 			self :: $classobj = new self;
@@ -41,11 +45,15 @@ class Add_Quicktag_Im_Export extends Add_Quicktag_Settings {
 	 */
 	public function __construct() {
 		
+		self::$post_types_for_js = parent::get_post_types_for_js();
+		
 		if ( isset( $_GET['addquicktag_download'] ) && check_admin_referer( parent :: $nonce_string ) )
-			add_action( 'init', array( $this, 'get_export_file' ) );
+			$this->get_export_file();
+			//add_action( 'init', array( $this, 'get_export_file' ) );
 		
 		if ( isset( $_POST['addquicktag_import'] ) && check_admin_referer( parent :: $nonce_string ) )
-			add_action( 'init', array( $this, 'import_file' ) );
+			$this->import_file();
+			//add_action( 'init', array( $this, 'import_file' ) );
 		
 		add_action( 'addquicktag_settings_page', array( $this, 'get_im_export_part' ) );
 	}
@@ -182,6 +190,7 @@ class Add_Quicktag_Im_Export extends Add_Quicktag_Settings {
 			$filename = $_FILES['xml']['tmp_name'];
 		
 		$filename = preg_replace( "/\<\!\[CDATA\[(.*?)\]\]\>/ies", "'[CDATA]' . base64_encode('$1') . '[/CDATA]'", $filename );
+		$filename = utf8_encode( $filename );
 		$matches  = simplexml_load_file( $filename );
 		
 		// create array from xml
@@ -195,6 +204,7 @@ class Add_Quicktag_Im_Export extends Add_Quicktag_Settings {
 		$options['buttons'] = $button;
 		// validate the values from xml
 		$options = parent :: validate_settings($options);
+		
 		// update settings in database
 		if ( is_multisite() && is_plugin_active_for_network( parent :: get_plugin_string() ) )
 			update_site_option( parent :: get_option_string(), $options );

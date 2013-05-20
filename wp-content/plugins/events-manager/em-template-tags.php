@@ -76,17 +76,15 @@ function em_calendar( $args = array() ){ echo em_get_calendar($args); }
  * Generate a grouped list of events by year, month, week or day.
  * @since 4.213
  * @param array $args
- * @param string $format
  * @return string
  */
-function em_get_events_list_grouped($args, $format=''){
+function em_get_events_list_grouped($args){
 	//Reset some args to include pagination for if pagination is requested.
 	$args['limit'] = (!empty($args['limit']) && is_numeric($args['limit']) )? $args['limit'] : false;
 	$args['page'] = (!empty($args['page']) && is_numeric($args['page']) )? $args['page'] : 1;
-	$args['page'] = (!empty($_REQUEST['page']) && is_numeric($_REQUEST['page']) )? $_REQUEST['page'] : $args['page'];
+	$args['page'] = (!empty($_REQUEST['pno']) && is_numeric($_REQUEST['pno']) )? $_REQUEST['pno'] : $args['page'];
 	$args['offset'] = ($args['page']-1) * $args['limit'];
 	$args['orderby'] = 'event_start_date,event_start_time,event_name'; // must override this to display events in right cronology.
-	if( !empty($format) ){ $args['format'] = html_entity_decode($format); } //accept formats
 	//Reset some vars for counting events and displaying set arrays of events
 	$atts = (array) $args;
 	$atts['pagination'] = false;
@@ -115,7 +113,7 @@ function em_get_events_list_grouped($args, $format=''){
 			$format = (!empty($args['date_format'])) ? $args['date_format']:'M Y';
 			$events_dates = array();
 			foreach($EM_Events as $EM_Event){
-				$events_dates[date_i18n($format,$EM_Event->start)][] = $EM_Event;
+				$events_dates[date_i18n($format, $EM_Event->start)][] = $EM_Event;
 			}
 			foreach ($events_dates as $month => $events){
 				echo '<h2>'.$month.'</h2>';
@@ -155,7 +153,7 @@ function em_get_events_list_grouped($args, $format=''){
 	}
 	if( !empty($args['limit']) && $events_count > $args['limit'] && (!empty($args['pagination']) || !isset($args['pagination'])) ){
 		//Show the pagination links (unless there's less than $limit events)
-		$page_link_template = add_query_arg(array('page'=>'%PAGE%'));
+		$page_link_template = add_query_arg(array('pno'=>'%PAGE%'));
 		echo em_paginate( $page_link_template, $events_count, $args['limit'], $args['page']);
 	}
 	return ob_get_clean();
@@ -177,7 +175,7 @@ function em_events_list_grouped($args, $format=''){ echo em_get_events_list_grou
 function em_get_link( $text = '' ) {
 	$text = ($text == '') ? get_option ( "dbem_events_page_title" ) : $text;
 	$text = ($text == '') ? __('Events','dbem') : $text; //In case options aren't there....
-	return "<a href='".EM_URI."' title='$text'>$text</a>";
+	return '<a href="'.esc_url(EM_URI).'" title="'.esc_attr($text).'">'.esc_html($text).'</a>';
 }
 /**
  * Prints the result of em_get_link()
@@ -193,7 +191,7 @@ function em_link($text = ''){ echo em_get_link($text); }
  */
 function em_get_rss_link($text = "RSS") {
 	$text = ($text == '') ? 'RSS' : $text;
-	return "<a href='".EM_RSS_URI."'>$text</a>";
+	return '<a href="'.esc_url(EM_RSS_URI).'">'.esc_html($text).'</a>';
 }
 /**
  * Prints the result of em_get_rss_link()
@@ -218,6 +216,9 @@ function em_event_form($args = array()){
 	if( !is_user_logged_in() && get_option('dbem_events_anonymous_submissions') && em_locate_template('forms/event-editor-guest.php') ){
 		em_locate_template('forms/event-editor-guest.php',true, array('args'=>$args));
 	}else{
+	    if( !empty($_REQUEST['success']) ){
+	    	$EM_Event = new EM_Event(); //reset the event
+	    }
 		if( empty($EM_Event->event_id) ){
 			$EM_Event = ( is_object($EM_Event) && get_class($EM_Event) == 'EM_Event') ? $EM_Event : new EM_Event();
 			//Give a default location & category
@@ -258,43 +259,60 @@ function em_events_admin($args = array()){
 			}
 			em_event_form();
 		}else{
+			//template $args for different views
+		    $args_views['pending'] = array('status'=>0, 'owner' =>get_current_user_id(), 'scope' => 'all');
+		    $args_views['draft'] = array('status'=>null, 'owner' =>get_current_user_id(), 'scope' => 'all');
+		    $args_views['past'] = array('status'=>'all', 'owner' =>get_current_user_id(), 'scope' => 'past');
+		    $args_views['future'] = array('status'=>'1', 'owner' =>get_current_user_id(), 'scope' => 'future');
+		    //get listing options for $args
 			$limit = ( !empty($_REQUEST['limit']) ) ? $_REQUEST['limit'] : 20;//Default limit
 			$page = ( !empty($_REQUEST['pno']) ) ? $_REQUEST['pno']:1;
 			$offset = ( $page > 1 ) ? ($page-1)*$limit : 0;
 			$order = ( !empty($_REQUEST ['order']) ) ? $_REQUEST ['order']:'ASC';
-			$scope_names = em_get_scopes();
-			$scope = ( !empty($_REQUEST ['scope']) && array_key_exists($_REQUEST ['scope'], $scope_names) ) ? $_REQUEST ['scope']:'future';
-			if( array_key_exists('status', $_REQUEST) ){
-				$status = ($_REQUEST['status']) ? 1:0;
-			}else{
-				$status = false;
-			}
 			$search = ( !empty($_REQUEST['em_search']) ) ? $_REQUEST['em_search']:'';
-			$args = array( 'scope' => $scope, 'order' => $order, 'search' => $search, 'owner' => get_current_user_id(),'status' => $status);
+			//deal with view or scope/status combinations
+			$args = array('order' => $order, 'search' => $search, 'owner' => get_current_user_id());
+			if( !empty($_REQUEST['view']) && in_array($_REQUEST['view'], array('future','draft','past','pending')) ){
+	    	    $args['status'] = $args_views[$_REQUEST['view']]['status'];
+	    	    $args['scope'] = $args_views[$_REQUEST['view']]['scope'];
+			}else{
+				$scope_names = em_get_scopes();
+				$args['scope'] = ( !empty($_REQUEST ['scope']) && array_key_exists($_REQUEST ['scope'], $scope_names) ) ? $_REQUEST ['scope']:'future';
+				if( array_key_exists('status', $_REQUEST) ){
+					$status = ($_REQUEST['status']) ? 1:0;
+					if($_REQUEST['status'] == 'all') $status = 'all';
+					if($_REQUEST['status'] == 'draft') $status = null;
+				}else{
+					$status = false;
+				}
+				$args['status'] = $status;
+			}
 			$events_count = EM_Events::count( $args ); //count events without limits for pagination
 			$args['limit'] = $limit;
 			$args['offset'] = $offset;
-			$EM_Events = EM_Events::get( $args );
-			if($scope != 'future'){
-				$future_count = EM_Events::count( array('status'=>1, 'owner' =>get_current_user_id(), 'scope' => 'future'));
-			}else{
-				$future_count = $events_count;
-			}
-			$pending_count = EM_Events::count( array('status'=>0, 'owner' =>get_current_user_id(), 'scope' => 'all') );
+			$EM_Events = EM_Events::get( $args ); //now get the limited events to display
+			$future_count = EM_Events::count( $args_views['future'] );
+			$pending_count = EM_Events::count( $args_views['pending'] );
+			$draft_count = EM_Events::count( $args_views['draft'] );
+			$past_count = EM_Events::count( $args_views['past'] );
 			em_locate_template('tables/events.php',true, array(
 				'args'=>$args, 
 				'EM_Events'=>$EM_Events, 
 				'events_count'=>$events_count, 
 				'future_count'=>$future_count,
 				'pending_count'=>$pending_count,
+				'draft_count'=>$draft_count,
+				'past_count'=>$past_count,
 				'page' => $page,
 				'limit' => $limit,
 				'offset' => $offset,
 				'show_add_new' => true
 			));
 		}
+	}elseif( !is_user_logged_in() && get_option('dbem_events_anonymous_submissions') ){
+		em_event_form($args);
 	}else{
-		echo __("You must log in to view and manage your events.",'dbem');
+		echo apply_filters('em_event_submission_login', __("You must log in to view and manage your events.",'dbem'));
 	}
 }
 /**
@@ -357,27 +375,38 @@ function em_locations_admin($args = array()){
 			}
 			em_location_form();
 		}else{
-			$url = empty($url) ? $_SERVER['REQUEST_URI']:$url; //url to this page
 			$limit = ( !empty($_REQUEST['limit']) ) ? $_REQUEST['limit'] : 20;//Default limit
 			$page = ( !empty($_REQUEST['pno']) ) ? $_REQUEST['pno']:1;
 			$offset = ( $page > 1 ) ? ($page-1)*$limit : 0;
-			$args = array('limit'=>$limit, 'offset'=>$offset, 'status'=>false, 'blog'=>false);
+			$order = ( !empty($_REQUEST ['order']) ) ? $_REQUEST ['order']:'ASC';
+			if( array_key_exists('status', $_REQUEST) ){
+				$status = ($_REQUEST['status']) ? 1:0;
+			}else{
+				$status = false;
+			}
+			$blog = false;
+			if( EM_MS_GLOBAL && !get_site_option('dbem_ms_mainblog_locations') && !is_main_site() ){
+			    //set current blog id if not on main site and using global mode whilst not forcing all locations to be on main blog
+			    $blog = get_current_blog_id();
+			}
+			$args = array('limit'=>$limit, 'offset'=>$offset, 'status'=>$status, 'blog'=>$blog);
+			//count locations
+			$locations_mine_count = EM_Locations::count( array('owner'=>get_current_user_id(), 'blog'=>$blog, 'status'=>false) );
+			$locations_all_count = current_user_can('read_others_locations') ? EM_Locations::count(array('blog'=>$blog, 'status'=>false, 'owner'=>false)):0;
+			//get set of locations
 			if( !empty($_REQUEST['view']) && $_REQUEST['view'] == 'others' && current_user_can('read_others_locations') ){
 				$locations = EM_Locations::get($args);
-				$locations_count = EM_Locations::count(array('status'=>false, 'blog'=>false, 'owner'=>false));
+				$locations_count = $locations_all_count;
 			}else{
 				$locations = EM_Locations::get( array_merge($args, array('owner'=>get_current_user_id())) );
-				$locations_count = EM_Locations::count(array('status'=>false, 'blog'=>false, 'owner'=>get_current_user_id()));
+				$locations_count = $locations_mine_count;
 			}
-			$locations_mine_count = EM_Locations::count( array('owner'=>get_current_user_id(), 'blog'=>false, 'status'=>false) );
-			$locations_all_count = current_user_can('read_others_locations') ? EM_Locations::count(array('blog'=>false, 'status'=>false)):0;
 			em_locate_template('tables/locations.php',true, array(
 				'args'=>$args, 
 				'locations'=>$locations, 
 				'locations_count'=>$locations_count, 
 				'locations_mine_count'=>$locations_mine_count,
 				'locations_all_count'=>$locations_all_count,
-				'url' => $url,
 				'page' => $page,
 				'limit' => $limit,
 				'offset' => $offset,
@@ -468,7 +497,27 @@ function em_is_calendar_day_page(){
  * Is this a a single category page?
  * @return boolean
  */
-function em_is_category_page(){
+function em_is_category_page( $category = false ){
+    if( !empty($category) ){
+        global $wp_query, $post, $em_category_id;
+        if( is_tax(EM_TAXONOMY_CATEGORY, $category) ){ return true; }
+        if( !empty($wp_query->em_category_id) || ($post->ID == get_option('dbem_categories_page') && !empty($em_category_id)) ){
+			$cat_id = !empty($wp_query->em_category_id) ? $wp_query->em_category_id:$em_category_id;
+            $EM_Category = em_get_category($cat_id);
+            if( is_array($category) ){
+                $is_category = array();
+                foreach( $category as $id_or_term ){
+                    $is_category[] = is_numeric($id_or_term) ? $EM_Category->id == $id_or_term : ($EM_Category->slug == $id_or_term || $EM_Category->name == $id_or_term);
+                }
+                return in_array(true, $is_category);
+            }else{
+                $is_category = is_numeric($category) ? $EM_Category->id == $category : ($EM_Category->slug == $category  || $EM_Category->name == $category);
+                return $is_category;
+            }
+            return false;
+        }
+        return false;
+    }
 	return em_get_page_type() == 'category';
 }
 /**
@@ -477,6 +526,34 @@ function em_is_category_page(){
  */
 function em_is_categories_page(){
 	return em_get_page_type() == 'categories';
+}
+
+/**
+ * Is this a a single category page?
+ * @return boolean
+ */
+function em_is_tag_page( $tag = false ){
+	if( !empty($tag) ){
+		global $wp_query, $post, $em_tag_id;
+		if( is_tax(EM_TAXONOMY_TAG, $tag) ){ return true; }
+		if( !empty($wp_query->em_tag_id) || !empty($em_tag_id) ){
+			$tag_id = !empty($wp_query->em_tag_id) ? $wp_query->em_tag_id:$em_tag_id;
+			$EM_Tag = em_get_tag($tag_id);
+			if( is_array($tag) ){
+				$is_tag = array();
+				foreach( $tag as $id_or_term ){
+					$is_tag[] = is_numeric($id_or_term) ? $EM_Tag->id == $id_or_term : ($EM_Tag->slug == $id_or_term || $EM_Tag->name == $id_or_term);
+				}
+				return in_array(true, $is_tag);
+			}else{
+				$is_tag = is_numeric($tag) ? $EM_Tag->id == $tag : ($EM_Tag->slug == $tag || $EM_Tag->name == $tag);
+				return $is_tag;
+			}
+			return false;
+		}
+		return false;
+	}
+	return em_get_page_type() == 'tag';
 }
 
 /**

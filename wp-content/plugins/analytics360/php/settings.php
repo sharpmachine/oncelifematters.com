@@ -36,34 +36,7 @@
 							<label for="a360_api_key">API Key</label>
 							<input type="text" size="32" value="<?php echo $a360_api_key;?>" id="a360_api_key" name="a360_api_key" />
 						</div>
-					</fiedlset>
-					<p>
-						<h3 class="a360-want-key"<?php echo ($a360_has_key ? ' style="display:none;"' : '');?>>- OR -</h2>
-					</p>
-					<fieldset class="options">
-						<p class="a360-want-key"<?php echo ($a360_has_key ? ' style="display:none;"' : '');?>>
-							Enter your MailChimp username and password to generate an API key. This key will power Analytics360&deg;.
-						</p>
-						<p class="a360-has-key"<?php echo (!$a360_has_key ? ' style="display:none;"' : '');?>>
-							Your API key powers Analytics360&deg;.
-						</p>
-						<div class="option a360-has-key"<?php echo (!$a360_has_key ? ' style="display:none;"' : '');?>>
-							<label for="a360_api_key">API Key</label>
-							<input disabled="disabled" size="32" value="<?php echo $a360_api_key;?>" id="a360_api_key" name="a360_api_key" />
-							<div class="clear"></div>
-						</div>
-						<div class="option a360-want-key"<?php echo ($a360_has_key ? ' style="display:none;"' : '');?>>
-							<label for="a360_username">Username</label>
-							<input value="" id="a360_username" name="a360_username" />
-							<div class="clear"></div>
-						</div>
-						<div class="option a360-want-key"<?php echo ($a360_has_key ? ' style="display:none;"' : '');?>>
-							<label for="a360_password">Password</label>
-							<input type="password" value="" id="a360_password" name="a360_password" />
-							<div class="clear"></div>
-						</div>
 					</fieldset>
-					
 					<p class="submit a360-want-key" <?php echo ($a360_has_key ? ' style="display:none;"' : '');?>>
 						<input type="submit" name="submit" value="<?php echo __('Submit', 'analytics360');?>" id="a360-submit-mc-userpass"/>
 					</p>
@@ -97,16 +70,16 @@
 	<li>
 <?php
 		if (empty($a360_ga_token)) {
-			$authenticate_url = 'https://www.google.com/accounts/AuthSubRequest?'.http_build_query(array(
+			$authenticate_url = 'https://www.google.com/accounts/AuthSubRequest?'.build_query(array(
 				'next' => site_url('wp-admin/options-general.php?a360_action=capture_ga_token'),
-				'scope' => 'https://www.google.com/analytics/feeds/',
+				'scope' => 'https://www.googleapis.com/auth/analytics.readonly',
 				'secure' => 0,
 				'session' => 1
 			));
 		}
 		else {
-			$url = 'https://www.google.com/analytics/feeds/accounts/default';
-						
+			$url = 'https://www.googleapis.com/analytics/v2.4/management/accounts/~all/webproperties/~all/profiles';
+					
 			$wp_http = a360_get_wp_http();
 			$request_args = array(
 				'headers' => a360_get_authsub_headers(),
@@ -129,8 +102,7 @@
 					//$ga_auth_error = $result['body'];
 				}
 				else {
-					$xml = simplexml_load_string($result['body']);
-
+					$xml = new SimpleXMLElement($result['body']);
 					$profiles = array();
 					foreach($xml->entry as $entry) {
 						$properties = array();
@@ -139,17 +111,22 @@
 							$attr = $property->attributes();
 							$properties[str_replace('ga:', '', $attr->name)] = strval($attr->value);
 						}
-						$properties['title'] = strval($entry->title);
+						$properties['title'] = $properties['profileName'];
 						$properties['updated'] = strval($entry->updated);
 						$profiles[$properties['profileId']] = $properties;
 					}
 					if (count($profiles)) {
 						global $a360_ga_profile_id;
-						if (empty($a360_ga_profile_id)) {
-							$a360_ga_profile_id = $properties['profileId'];	// just use the last one
-							update_option('a360_ga_profile_id', $a360_ga_profile_id);
+						if (count($profiles) == 1) {
+							// Using array_values helps prevent altering the base array.
+							$item = array_shift(array_values($profiles));
+							if ($a360_ga_profile_id != $item['profileId']) {
+								if (update_option('a360_ga_profile_id', $item['profileId'])) {
+									$a360_ga_profile_id = $item['profileId'];
+								}
+							}
 						}
-						if (count($profiles) > 1) {
+						else if (count($profiles) > 1) {
 							$profile_options = array();
 							foreach ($profiles as $id => $profile) {
 								$profile_options[] = '<option value="'.$id.'"'.($a360_ga_profile_id == $id ? 'selected="selected"' : '').'>'.$profile['title'].'</option>';
@@ -204,7 +181,7 @@
 			<p>
 				You have <?php echo count($profiles); ?> profiles in your account. 
 				Currently you're tracking 
-				<strong><a href="https://www.google.com/analytics/reporting/?id=<?php echo $a360_ga_profile_id; ?>"><?php echo $profiles[$a360_ga_profile_id]['title']; ?></a></strong><?php echo (count($profiles) > 1 ? ', but you can change that if you\'d like.' :'.'); ?>
+				<strong><?php echo $profiles[$a360_ga_profile_id]['title']; ?></strong><?php echo (count($profiles) > 1 ? ', but you can change that if you\'d like.' :'.'); ?>
 			</p>
 
 			<?php if (count($profiles) > 1) : ?>
@@ -219,14 +196,14 @@
 					</form>
 			<?php endif; ?>
 
-		<?php else :  /* if (count($profiles)) */ ?>
+		<?php else :  /* if (count($accounts)) */ ?>
 
 			<p>
 				You do not have any profiles associated with your Google Analytics account. Probably better
 				<a href="https://www.google.com/analytics">head over there</a> and set one up!
 			</p>
 
-		<?php endif; /* if (count($profiles)) */ ?>
+		<?php endif; /* if (count($accounts)) */ ?>
 
 	<?php } /* if (!empty($ga_auth_error)) */ ?>
 	

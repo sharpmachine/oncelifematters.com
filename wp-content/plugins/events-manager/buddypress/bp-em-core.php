@@ -26,10 +26,12 @@ class BP_EM_Component extends BP_Component {
 			'buddypress/screens/my-locations.php',
 			'buddypress/screens/attending.php',
 			'buddypress/screens/my-bookings.php',
-			'buddypress/screens/my-group-events.php',
-			'buddypress/screens/group-events.php',
-			'buddypress/bp-em-groups.php'
+			'buddypress/screens/my-group-events.php'
 		);
+		if( bp_is_active('groups') ){
+			$includes[] = 'buddypress/screens/group-events.php';
+			$includes[] = 'buddypress/bp-em-groups.php';
+		}
 		parent::includes( $includes );
 		//TODO add admin pages for extra BP specific settings
 	}
@@ -41,7 +43,7 @@ class BP_EM_Component extends BP_Component {
 		global $bp, $wpdb;
 		// Define a slug constant that will be used to view this components pages
 		if ( !defined( 'BP_EM_SLUG' ) )
-			define ( 'BP_EM_SLUG', EM_POST_TYPE_EVENT_SLUG );
+			define ( 'BP_EM_SLUG', str_replace('/','-', EM_POST_TYPE_EVENT_SLUG) );
 
 		// Set up the $globals array to be passed along to parent::setup_globals()
 		$globals = array(
@@ -158,6 +160,95 @@ class BP_EM_Component extends BP_Component {
 		add_action( 'bp_init', array(&$this, 'setup_group_nav') );
 	}
 	
+	function setup_admin_bar() {
+		global $bp, $blog_id;
+	
+		// Prevent debug notices
+		$wp_admin_nav = array();
+	
+		// Menus for logged in user
+		if ( is_user_logged_in() ) {
+			//check multisite or normal mode for correct permission checking
+			if(is_multisite() && $blog_id != BP_ROOT_BLOG){
+				//FIXME MS mode doesn't seem to recognize cross subsite caps, using the proper functions, for now we use switch_blog.
+				$current_blog = $blog_id;
+				switch_to_blog(BP_ROOT_BLOG);
+				$can_manage_events = current_user_can_for_blog(BP_ROOT_BLOG, 'edit_events');
+				$can_manage_locations = current_user_can_for_blog(BP_ROOT_BLOG, 'edit_locations');
+				$can_manage_bookings = current_user_can_for_blog(BP_ROOT_BLOG, 'manage_bookings');
+				switch_to_blog($current_blog);
+			}else{
+				$can_manage_events = current_user_can('edit_events');
+				$can_manage_locations = current_user_can('edit_locations');
+				$can_manage_bookings = current_user_can('manage_bookings');
+			}
+
+			$em_link = trailingslashit( bp_loggedin_user_domain() . em_bp_get_slug() );
+			
+			/* Add 'Events' to the main user profile navigation */
+			$wp_admin_nav[] = array(
+				'parent' => $bp->my_account_menu_id,
+				'id'     => 'my-em-' . $this->id,
+				'title'  => __( 'Events', 'dbem' ),
+				'href'   => $em_link
+			);
+			
+			/* Create SubNav Items */
+			$wp_admin_nav[] = array(
+				'parent' => 'my-em-' . $this->id,
+				'id'     => 'my-em-' . $this->id .'-profile',
+				'title'  => __( 'My Profile', 'dbem' ),
+				'href'   => $em_link.'profile/'
+			);
+			
+			$wp_admin_nav[] = array(
+				'parent' => 'my-em-' . $this->id,
+				'id'     => 'my-em-' . $this->id .'-attending',
+				'title'  => __( 'Events I\'m Attending', 'dbem' ),
+				'href'   => $em_link.'attending/'
+			);
+			
+			if( $can_manage_events ){
+				$wp_admin_nav[] = array(
+					'parent' => 'my-em-' . $this->id,
+					'id'     => 'my-em-' . $this->id .'-my-events',
+					'title'  => __( 'My Events', 'dbem' ),
+					'href'   => $em_link.'my-events/'
+				);
+			}
+			
+			if( $can_manage_locations && get_option('dbem_locations_enabled') ){
+				$wp_admin_nav[] = array(
+					'parent' => 'my-em-' . $this->id,
+					'id'     => 'my-em-' . $this->id .'-my-locations',
+					'title'  => __( 'My Locations', 'dbem' ),
+					'href'   => $em_link.'my-locations/'
+				);
+			}
+			
+			if( $can_manage_bookings && get_option('dbem_rsvp_enabled') ){
+				$wp_admin_nav[] = array(
+					'parent' => 'my-em-' . $this->id,
+					'id'     => 'my-em-' . $this->id .'-my-bookings',
+					'title'  => __( 'My Event Bookings', 'dbem' ),
+					'href'   => $em_link.'my-bookings/'
+				);
+			}
+			
+			if( bp_is_active('groups') ){
+				/* Create Profile Group Sub-Nav */
+				$wp_admin_nav[] = array(
+					'parent' => 'my-account-groups',
+					'id'     => 'my-account-groups-' . $this->id ,
+					'title'  => __( 'Events', 'dbem' ),
+					'href'   => trailingslashit( bp_loggedin_user_domain() . bp_get_groups_slug() ) . 'group-events/'
+				);
+			}			
+		}
+	
+		parent::setup_admin_bar( $wp_admin_nav );
+	}
+	
 	function setup_group_nav(){
 		global $bp;	
 		/* Add some group subnav items */
@@ -189,7 +280,7 @@ function bp_em_load_core_component() {
 }
 add_action( 'bp_loaded', 'bp_em_load_core_component' );
 
-if( !is_admin() ){
+if( !is_admin() || ( defined('DOING_AJAX') && !empty($_REQUEST['is_public'])) ){
 	/*
 	 * Links and URL Rewriting
 	 */
@@ -199,14 +290,13 @@ if( !is_admin() ){
 	}
 	if( !get_option('dbem_edit_events_page') ){
 		add_filter('em_event_get_edit_url','em_bp_rewrite_edit_url',10,2);
-	}
-	
+	}	
 	
 	function em_bp_rewrite_bookings_url($url, $EM_Event){
 		global $bp;
-		return $bp->events->link.'my-bookings/?action=edit&event_id='.$EM_Event->event_id;
+		return $bp->events->link.'my-bookings/?event_id='.$EM_Event->event_id;
 	}
-	if( !get_option('dbem_my_bookings_page') ){
+	if( !get_option('dbem_edit_bookings_page') ){
 		add_filter('em_event_get_bookings_url','em_bp_rewrite_bookings_url',10,2);
 	}
 	
@@ -218,6 +308,15 @@ if( !is_admin() ){
 		add_filter('em_location_get_edit_url','em_bp_rewrite_edit_location_url',10,2);
 	}
 }
+
+//CSS and JS Loading
+function bp_em_enqueue_scripts( ){
+	if( bp_is_current_component('events') || (bp_is_current_component('groups') && bp_is_current_action('group-events')) ){
+	    add_filter('option_dbem_js_limit', create_function('$args','return false;'));
+	    add_filter('option_dbem_css_limit', create_function('$args','return false;'));
+	}
+}
+add_action('wp_enqueue_scripts','bp_em_enqueue_scripts',1);
 
 /**
  * Delete events when you delete a user.

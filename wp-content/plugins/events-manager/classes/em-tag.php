@@ -47,15 +47,20 @@ class EM_Tag extends EM_Object {
 			if( is_object($tag_data) && !empty($tag_data->taxonomy) && $tag_data->taxonomy == EM_TAXONOMY_TAG ){
 				$tag = $tag_data;
 			}elseif( !is_numeric($tag_data) ){
-				$tag = get_term_by('slug', $tag_data, EM_TAXONOMY_TAG);
+				$tag = get_term_by('name', $tag_data, EM_TAXONOMY_TAG);
+				if( empty($tag) ){
+					$tag = get_term_by('slug', $tag_data, EM_TAXONOMY_TAG);					
+				}
 			}else{		
 				$tag = get_term_by('id', $tag_data, EM_TAXONOMY_TAG);
 			}
 		}
-		foreach($tag as $key => $value){
-			$this->$key = $value;
+		if( !empty($tag) ){
+			foreach($tag as $key => $value){
+				$this->$key = $value;
+			}
+			$this->id = $this->term_id; //backward compatability
 		}
-		$this->id = $this->term_id; //backward compatability
 		do_action('em_tag',$this, $tag_data);
 	}
 	
@@ -83,6 +88,7 @@ class EM_Tag extends EM_Object {
 		}
 		$tag_string = $format;		 
 	 	preg_match_all("/(#@?_?[A-Za-z0-9]+)({([a-zA-Z0-9,]+)})?/", $format, $placeholders);
+	 	$replaces = array();
 		foreach($placeholders[1] as $key => $result) {
 			$match = true;
 			$replace = '';
@@ -112,24 +118,36 @@ class EM_Tag extends EM_Object {
 					//forget it ever happened? :/
 					if ($result == '#_TAGPASTEVENTS'){ $scope = 'past'; }
 					elseif ( $result == '#_TAGNEXTEVENTS' ){ $scope = 'future'; }
-					else{ $scope = 'all'; }					
-					$events = EM_Events::get( array('tag'=>$this->term_id, 'scope'=>$scope) );
-					if ( count($events) > 0 ){
-						$replace .= get_option('dbem_tag_event_list_item_header_format','<ul>');
-						foreach($events as $EM_Event){
-							$replace .= $EM_Event->output(get_option('dbem_tag_event_list_item_format'));
-						}
-						$replace .= get_option('dbem_tag_event_list_item_footer_format');
+					else{ $scope = 'all'; }
+					$events_count = EM_Events::count( array('tag'=>$this->term_id, 'scope'=>$scope) );
+					if ( $events_count > 0 ){
+					    $args = array('tag'=>$this->term_id, 'scope'=>$scope, 'pagination'=>1);
+					    $args['format_header'] = get_option('dbem_tag_event_list_item_header_format');
+					    $args['format_footer'] = get_option('dbem_tag_event_list_item_footer_format');
+					    $args['format'] = get_option('dbem_tag_event_list_item_format');
+						$args['limit'] = get_option('dbem_tag_event_list_limit');
+						$args['page'] = (!empty($_REQUEST['pno']) && is_numeric($_REQUEST['pno']) )? $_REQUEST['pno'] : 1;
+					    $replace = EM_Events::output($args);
 					} else {
 						$replace = get_option('dbem_tag_no_events_message','</ul>');
+					}
+					break;
+				case '#_TAGNEXTEVENT':
+					$events = EM_Events::get( array('tag'=>$this->term_id, 'scope'=>'future', 'limit'=>1, 'orderby'=>'event_start_date,event_start_time') );
+					$replace = get_option('dbem_tag_no_event_message');
+					foreach($events as $EM_Event){
+						$replace = $EM_Event->output(get_option('dbem_tag_event_single_format'));
 					}
 					break;
 				default:
 					$replace = $full_result;
 					break;
 			}
-			$replace = apply_filters('em_tag_output_placeholder', $replace, $this, $full_result, $target); //USE WITH CAUTION! THIS MIGHT GET RENAMED
-			$tag_string = str_replace($full_result, $replace , $tag_string );
+			$replaces[$full_result] = apply_filters('em_tag_output_placeholder', $replace, $this, $full_result, $target);
+		}
+		krsort($replaces);
+		foreach($replaces as $full_result => $replacement){
+			$tag_string = str_replace($full_result, $replacement , $tag_string );
 		}
 		return apply_filters('em_tag_output', $tag_string, $this, $format, $target);	
 	}

@@ -16,6 +16,7 @@ ModulePriority: -1
 
 //TODO: Rewrite sub-classes as transports, not stand-alone checkers
 class blcHttpChecker extends blcChecker {
+	/* @var blcChecker */
 	var $implementation = null;
 	
 	function init(){
@@ -100,7 +101,7 @@ class blcHttpCheckerBase extends blcChecker {
    * This checker only accepts HTTP(s) links.
    *
    * @param string $url
-   * @param array|false $parsed
+   * @param array|bool $parsed
    * @return bool
    */
 	function can_check($url, $parsed){
@@ -112,7 +113,7 @@ class blcHttpCheckerBase extends blcChecker {
   /**
    * Takes an URL and replaces spaces and some other non-alphanumeric characters with their urlencoded equivalents.
    *
-   * @param string $str
+   * @param string $url
    * @return string
    */
 	function urlencodefix($url){
@@ -134,7 +135,7 @@ class blcCurlHttp extends blcHttpCheckerBase {
 		$this->last_headers = '';
 		
 		$url = $this->clean_url($url);
-		
+
 		$result = array(
 			'broken' => false,
 		);
@@ -148,9 +149,8 @@ class blcCurlHttp extends blcHttpCheckerBase {
         curl_setopt($ch, CURLOPT_URL, $this->urlencodefix($url));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         
-        //Masquerade as Internet explorer
-        //$ua = 'Mozilla/4.0 (compatible; MSIE 5.01; Windows NT 5.0)';
-        $ua = 'Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1; .NET CLR 1.1.4322; .NET CLR 2.0.50727; .NET CLR 3.0.04506.30)';
+        //Masquerade as Internet Explorer
+		$ua = 'Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; WOW64; Trident/5.0)';
         curl_setopt($ch, CURLOPT_USERAGENT, $ua);
         
         //Add a semi-plausible referer header to avoid tripping up some bot traps 
@@ -402,5 +402,3 @@ class blcSnoopyHttp extends blcHttpCheckerBase {
 	}
 	
 }
-
-?>

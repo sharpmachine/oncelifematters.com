@@ -11,6 +11,8 @@ class EM_Ticket extends EM_Object{
 	var $ticket_min;
 	var $ticket_max;
 	var $ticket_spaces = 10;
+	var $ticket_members = false;
+	var $ticket_required = false;
 	var $fields = array(
 		'ticket_id' => array('name'=>'id','type'=>'%d'),
 		'event_id' => array('name'=>'event_id','type'=>'%d'),
@@ -21,7 +23,9 @@ class EM_Ticket extends EM_Object{
 		'ticket_end' => array('name'=>'end','type'=>'%s','null'=>1),
 		'ticket_min' => array('name'=>'min','type'=>'%s','null'=>1),
 		'ticket_max' => array('name'=>'max','type'=>'%s','null'=>1),
-		'ticket_spaces' => array('name'=>'spaces','type'=>'%s','null'=>1)
+		'ticket_spaces' => array('name'=>'spaces','type'=>'%s','null'=>1),
+		'ticket_members' => array('name'=>'members','type'=>'%d','null'=>1),
+		'ticket_required' => array('name'=>'required','type'=>'%d','null'=>1)
 	);
 	//Other Vars
 	/**
@@ -45,9 +49,9 @@ class EM_Ticket extends EM_Object{
 	 */
 	function EM_Ticket( $ticket_data = false ){
 		$this->ticket_name = __('Standard Ticket','dbem');
+		$ticket = array();
 		if( $ticket_data !== false ){
 			//Load ticket data
-			$ticket = array();
 			if( is_array($ticket_data) ){
 				$ticket = $ticket_data;
 			}elseif( is_numeric($ticket_data) ){
@@ -55,11 +59,6 @@ class EM_Ticket extends EM_Object{
 				global $wpdb;
 				$sql = "SELECT * FROM ". EM_TICKETS_TABLE ." WHERE ticket_id ='$ticket_data'";   
 			  	$ticket = $wpdb->get_row($sql, ARRAY_A);
-			  	//Ticket notes
-			  	$notes = $wpdb->get_results("SELECT * FROM ". EM_META_TABLE ." WHERE meta_key='ticket-note' AND object_id ='$ticket_data'", ARRAY_A);
-			  	foreach($notes as $note){
-			  		$this->notes[] = unserialize($note['meta_value']);
-			  	}
 			}
 			//Save into the object
 			$this->to_object($ticket);
@@ -67,7 +66,20 @@ class EM_Ticket extends EM_Object{
 			$this->end_timestamp = (!empty($ticket['ticket_end'])) ? strtotime($ticket['ticket_end']):false;
 		}
 		$this->compat_keys();
-		do_action('em_ticket',$this, $ticket_data);
+		do_action('em_ticket',$this, $ticket_data, $ticket);
+	}
+	
+	function get_notes(){
+		global $wpdb;
+		if( !is_array($this->notes) && !empty($this->ticket_id) ){
+		  	$notes = $wpdb->get_results("SELECT * FROM ". EM_META_TABLE ." WHERE meta_key='ticket-note' AND object_id ='{$this->ticket_id}'", ARRAY_A);
+		  	foreach($notes as $note){
+		  		$this->ticket_id[] = unserialize($note['meta_value']);
+		  	}
+		}elseif( empty($this->booking_id) ){
+			$this->notes = array();
+		}
+		return $this->notes;
 	}
 	
 	/**
@@ -119,22 +131,27 @@ class EM_Ticket extends EM_Object{
 	 * Get posted data and save it into the object (not db)
 	 * @return boolean
 	 */
-	function get_post(){
+	function get_post($post = array()){
 		//We are getting the values via POST or GET
 		global $allowedposttags;
-		do_action('em_location_get_post_pre', $this);
-		$this->ticket_id = ( !empty($_POST['ticket_id']) ) ? $_POST['ticket_id']:'';
-		$this->event_id = ( !empty($_POST['event_id']) ) ? $_POST['event_id']:'';
-		$this->ticket_name = ( !empty($_POST['ticket_name']) ) ? wp_kses_data(stripslashes($_POST['ticket_name'])):'';
-		$this->ticket_description = ( !empty($_POST['ticket_description']) ) ? wp_kses(stripslashes($_POST['ticket_description']), $allowedposttags):'';
-		$this->ticket_price = ( !empty($_POST['ticket_price']) ) ? $_POST['ticket_price']:'';
-		$this->ticket_start = ( !empty($_POST['ticket_start']) ) ? $_POST['ticket_start']:'';
-		$this->ticket_end = ( !empty($_POST['ticket_end']) ) ? $_POST['ticket_end']:'';
-		$this->start_timestamp = ( !empty($_POST['ticket_start']) ) ? strtotime($_POST['ticket_start']):'';
-		$this->end_timestamp = ( !empty($_POST['ticket_end']) ) ? strtotime($_POST['ticket_end']):'';
-		$this->ticket_min = ( !empty($_POST['ticket_min']) ) ? $_POST['ticket_min']:'';
-		$this->ticket_max = ( !empty($_POST['ticket_max']) ) ? $_POST['ticket_max']:'';
-		$this->ticket_spaces = ( !empty($_POST['ticket_spaces']) ) ? $_POST['ticket_spaces']:'';
+		if( empty($post) ){
+		    $post = $_REQUEST;
+		}
+		do_action('em_location_get_post_pre', $this, $post);
+		$this->ticket_id = ( !empty($post['ticket_id']) ) ? $post['ticket_id']:'';
+		$this->event_id = ( !empty($post['event_id']) ) ? $post['event_id']:'';
+		$this->ticket_name = ( !empty($post['ticket_name']) ) ? wp_kses_data(stripslashes($post['ticket_name'])):'';
+		$this->ticket_description = ( !empty($post['ticket_description']) ) ? wp_kses(stripslashes($post['ticket_description']), $allowedposttags):'';
+		$this->ticket_price = ( !empty($post['ticket_price']) ) ? $post['ticket_price']:'';
+		$this->ticket_start = ( !empty($post['ticket_start']) ) ? $post['ticket_start']:'';
+		$this->ticket_end = ( !empty($post['ticket_end']) ) ? $post['ticket_end']:'';
+		$this->start_timestamp = ( !empty($post['ticket_start']) ) ? strtotime($post['ticket_start']):'';
+		$this->end_timestamp = ( !empty($post['ticket_end']) ) ? strtotime($post['ticket_end']):'';
+		$this->ticket_min = ( !empty($post['ticket_min']) ) ? $post['ticket_min']:'';
+		$this->ticket_max = ( !empty($post['ticket_max']) ) ? $post['ticket_max']:'';
+		$this->ticket_spaces = ( !empty($post['ticket_spaces']) ) ? $post['ticket_spaces']:10;
+		$this->ticket_members = ( !empty($post['ticket_members']) ) ? 1:0;
+		$this->ticket_required = ( !empty($post['ticket_required']) ) ? 1:0;
 		$this->compat_keys();
 		do_action('em_ticket_get_post', $this);
 	}	
@@ -160,16 +177,18 @@ class EM_Ticket extends EM_Object{
 			// TODO Create friendly equivelant names for missing fields notice in validation 
 			$this->errors[] = __ ( 'Missing fields: ' ) . implode ( ", ", $missing_fields ) . ". ";
 		}
-		return apply_filters('em_event_validate', count($this->errors) == 0, $this );
+		return apply_filters('em_ticket_validate', count($this->errors) == 0, $this );
 	}
 	
 	function is_available(){
 		$timestamp = current_time('timestamp');
+		$EM_Event = $this->get_event();
 		$available_spaces = $this->get_available_spaces();
 		$condition_1 = (empty($this->ticket_start) || $this->start_timestamp <= $timestamp);
-		$condition_2 = ($this->end_timestamp >= $timestamp || empty($this->ticket_end));
-		$condition_3 = $this->get_event()->end > $timestamp;
-		if( $condition_1 && $condition_2 && $condition_3 ){
+		$condition_2 = $this->end_timestamp + 86400 >= $timestamp || empty($this->ticket_end);
+		$condition_3 = $EM_Event->start > $timestamp || strtotime($EM_Event->event_rsvp_date. ' '. $EM_Event->event_rsvp_time) > $timestamp;
+		$condition_4 = !$this->ticket_members || ($this->ticket_members && is_user_logged_in());
+		if( $condition_1 && $condition_2 && $condition_3 && $condition_4 ){
 			//Time Constraints met, now quantities
 			if( $available_spaces > 0 && ($available_spaces >= $this->ticket_min || empty($this->ticket_min)) ){
 				return apply_filters('em_ticket_is_available',true,$this);
@@ -187,13 +206,14 @@ class EM_Ticket extends EM_Object{
 		if( is_numeric(get_option('dbem_bookings_tax')) && get_option('dbem_bookings_tax') > 0 ){
 			//tax could be added here
 			if( $add_tax === true || ($add_tax !== false && get_option('dbem_bookings_tax_auto_add')) ){
-				$price = number_format($price * (1 + get_option('dbem_bookings_tax')/100),2);				
+				$price = round($price * (1 + get_option('dbem_bookings_tax')/100),2);
 			}
 		}
+		$price = apply_filters('em_ticket_get_price',$price,$this);
 		if($format){
-			return apply_filters('em_ticket_get_price', em_get_currency_formatted($price),$this);
+			return em_get_currency_formatted($price);
 		}
-		return apply_filters('em_ticket_get_price',$price,$this);
+		return $price;
 	}
 	
 	/**
@@ -211,19 +231,35 @@ class EM_Ticket extends EM_Object{
 	function get_available_spaces(){
 		$event_available_spaces = $this->get_event()->get_bookings()->get_available_spaces();
 		$ticket_available_spaces = $this->get_spaces() - $this->get_booked_spaces();
+		if( get_option('dbem_bookings_approval_reserved')){
+		    $ticket_available_spaces = $ticket_available_spaces - $this->get_pending_spaces();
+		}
 		$return = ($ticket_available_spaces <= $event_available_spaces) ? $ticket_available_spaces:$event_available_spaces;
 		return apply_filters('em_ticket_get_available_spaces', $return, $this);
 	}
+	
+	function get_pending_spaces(){
+	    $spaces = 0;
+		foreach( $this->get_bookings()->get_pending_bookings()->bookings as $EM_Booking ){ //get_bookings() is used twice so we get the confirmed (or all if confirmation disabled) bookings of this ticket's total bookings.
+			//foreach booking, get this ticket booking info if found
+			foreach($EM_Booking->get_tickets_bookings()->tickets_bookings as $EM_Ticket_Booking){
+				if( $EM_Ticket_Booking->ticket_id == $this->ticket_id ){
+					$spaces += $EM_Ticket_Booking->get_spaces();
+				}
+			}
+		}
+		return apply_filters('em_ticket_get_pending_spaces', $spaces, $this);
+	}
 
 	/**
-	 * Returns the number of available spaces left in this ticket, bearing in mind event-wide restrictions, previous bookings, approvals and other tickets.
+	 * Returns the number of booked spaces in this ticket.
 	 * @return int
 	 */
 	function get_booked_spaces($force_reload=false){
 		//get all bookings for this event
 		$spaces = 0;
 		if( is_object($this->bookings) && $force_reload ){
-			return $this->bookings;
+			//return $this->bookings;
 		}
 		foreach( $this->get_bookings()->get_bookings()->bookings as $EM_Booking ){ //get_bookings() is used twice so we get the confirmed (or all if confirmation disabled) bookings of this ticket's total bookings.
 			//foreach booking, get this ticket booking info if found
@@ -279,15 +315,55 @@ class EM_Ticket extends EM_Object{
 			}
 		}
 		return ( $result !== false );
-	}	
+	}
+
+	/**
+	 * Based on ticket minimums, whether required and if the event has more than one ticket this function will return the absolute minimum required spaces for a booking 
+	 */
+	function get_spaces_minimum(){
+	    $ticket_count = count($this->get_event()->get_bookings()->get_tickets()->tickets);
+	    //count available tickets to make sure
+	    $available_tickets = 0;
+	    foreach($this->get_event()->get_bookings()->get_tickets()->tickets as $EM_Ticket){
+	    	if($EM_Ticket->is_available()){
+	    		$available_tickets++;
+	    	}
+	    }
+	    $min_spaces = 0;
+	    if( $ticket_count > 1 ){
+	        if( $this->is_required() && $this->is_available() ){
+	            $min_spaces = ($this->ticket_min > 0) ? $this->ticket_min:1;
+	        }elseif( $this->is_available() && $this->ticket_min > 0 ){
+	            $min_spaces = $this->ticket_min;	            
+	        }elseif( $this->is_available() && $available_tickets == 1 ){
+	            $min_spaces = 1;
+	        }
+	    }else{
+	    	$min_spaces = $this->ticket_min > 0 ? $this->ticket_min : 1;
+	    }
+	    return $min_spaces;
+	}
+	
+	function is_required(){
+	    if( $this->ticket_required || count($this->get_event()->get_tickets()->tickets) == 1 ){
+	        return true;
+	    }
+	    return false;
+	}
 
 	/**
 	 * Get the html options for quantities to go within a <select> container
 	 * @return string
 	 */
 	function get_spaces_options($zero_value = true, $default_value = 0){
-		$available_spaces = $this->get_available_spaces();
+		$available_spaces = $this->get_available_spaces();		
 		if( $this->is_available() ) {
+		    $min_spaces = $this->get_spaces_minimum();
+		    if( $default_value > 0 ){
+			    $default_value = $min_spaces > $default_value ? $min_spaces:$default_value;
+		    }else{
+		        $default_value = $this->is_required() ? $min_spaces:0;
+		    }
 			ob_start();
 			?>
 			<select name="em_tickets[<?php echo $this->ticket_id ?>][spaces]" class="em-ticket-select" id="em-ticket-spaces-<?php echo $this->ticket_id ?>">
@@ -295,7 +371,7 @@ class EM_Ticket extends EM_Object{
 					$min = ($this->ticket_min > 0) ? $this->ticket_min:1;
 					$max = ($this->ticket_max > 0) ? $this->ticket_max:get_option('dbem_bookings_form_max');
 				?>
-				<?php if($zero_value) : ?><option>0</option><?php endif; ?>
+				<?php if($zero_value && !$this->is_required()) : ?><option>0</option><?php endif; ?>
 				<?php for( $i=$min; $i<=$available_spaces && $i<=$max; $i++ ): ?>
 					<option <?php if($i == $default_value){ echo 'selected="selected"'; $shown_default = true; } ?>><?php echo $i ?></option>
 				<?php endfor; ?>
@@ -306,7 +382,6 @@ class EM_Ticket extends EM_Object{
 		}else{
 			return false;
 		}
-			
 	}
 	
 	/**

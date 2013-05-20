@@ -1,5 +1,6 @@
 wp-config.php
 /misc
+/wp-content/uploads
 /wp-content/themes/oncelifematters/js/hashgrid.js
 /wp-content/themes/oncelifematters/css/hashgrid.css
 /wp-content/themes/oncelifematters/css/style.less

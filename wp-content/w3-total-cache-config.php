@@ -514,7 +514,7 @@ return array(
 	'notes.php_is_old' => true,
 	'notes.theme_changed' => false,
 	'notes.wp_upgraded' => false,
-	'notes.plugins_updated' => false,
+	'notes.plugins_updated' => true,
 	'notes.cdn_upload' => true,
 	'notes.cdn_reupload' => false,
 	'notes.need_empty_pgcache' => false,

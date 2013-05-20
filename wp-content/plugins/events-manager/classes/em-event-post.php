@@ -11,16 +11,38 @@ class EM_Event_Post {
 		if( !is_admin() ){
 			//override single page with formats? 
 			add_filter('the_content', array('EM_Event_Post','the_content'));
+			add_filter('the_excerpt_rss', array('EM_Event_Post','the_excerpt_rss'));
 			//display as page template?
-			if( get_option('dbem_cp_events_template_page') ){
+			if( get_option('dbem_cp_events_template') ){
 				add_filter('single_template',array('EM_Event_Post','single_template'));
 			}
+			//add classes to body and post_class()
+			if( get_option('dbem_cp_events_post_class') != '' ){
+			    add_filter('post_class', array('EM_Event_Post','post_class'), 10, 3);
+			}
+			if( get_option('dbem_cp_events_body_class') != '' ){
+			    add_filter('body_class', array('EM_Event_Post','body_class'), 10, 3);
+			}
 			//Override post template tags
-			add_filter('the_date',array('EM_Event_Post','the_date'));
+			add_filter('the_date',array('EM_Event_Post','the_date'),10,2);
 			add_filter('get_the_date',array('EM_Event_Post','the_date'),10,2);
+			add_filter('the_time',array('EM_Event_Post','the_time'),10,2);
+			add_filter('get_the_time',array('EM_Event_Post','the_time'),10,2);
 			add_filter('the_category',array('EM_Event_Post','the_category'),10,3);
 		}
 		add_action('parse_query', array('EM_Event_Post','parse_query'));
+		add_action('publish_future_post',array('EM_Event_Post','publish_future_post'),10,1);
+	}
+	
+	function publish_future_post($post_id){
+		global $wpdb, $EM_Event, $EM_Location, $EM_Notices;
+		$post_type = get_post_type($post_id);
+		$is_post_type = $post_type == EM_POST_TYPE_EVENT || $post_type == 'event-recurring';
+		$saving_status = !in_array(get_post_status($post_id), array('trash','auto-draft')) && !defined('DOING_AUTOSAVE');
+		if(!defined('UNTRASHING_'.$post_id) && $is_post_type && $saving_status ){
+		    $EM_Event = em_get_event($post_id, 'post_id');
+		    $EM_Event->set_status(1);
+		}
 	}
 	
 	/**
@@ -30,10 +52,50 @@ class EM_Event_Post {
 	 */
 	function single_template($template){
 		global $post;
-		if( $post->post_type == EM_POST_TYPE_EVENT ){
-			$template = locate_template(array('page.php','index.php'),false);
+		if( !locate_template('single-'.EM_POST_TYPE_EVENT.'.php') && $post->post_type == EM_POST_TYPE_EVENT ){
+			//do we have a default template to choose for events?
+			if( get_option('dbem_cp_events_template') == 'page' ){
+				$post_templates = array('page.php','index.php');
+			}else{
+			    $post_templates = array(get_option('dbem_cp_events_template'));
+			}
+			if( !empty($post_templates) ){
+			    $post_template = locate_template($post_templates,false);
+			    if( !empty($post_template) ) $template = $post_template;
+			}
 		}
 		return $template;
+	}
+	
+	function post_class( $classes, $class, $post_id ){
+	    $post = get_post($post_id);
+	    if( $post->post_type == EM_POST_TYPE_EVENT ){
+	        foreach( explode(' ', get_option('dbem_cp_events_post_class')) as $class ){
+	            $classes[] = esc_attr($class);
+	        }
+	    }
+	    return $classes;
+	}
+	
+	function body_class( $classes ){
+	    if( em_is_event_page() ){
+	        foreach( explode(' ', get_option('dbem_cp_events_body_class')) as $class ){
+	            $classes[] = esc_attr($class);
+	        }
+	    }
+	    return $classes;
+	}
+	
+	function the_excerpt_rss( $content ){
+		global $post, $EM_Event;
+		if( $post->post_type == EM_POST_TYPE_EVENT ){
+			if( get_option('dbem_cp_events_formats') ){
+				$EM_Event = em_get_event($post);
+				$content = $EM_Event->output( get_option ( 'dbem_rss_description_format' ), "rss");
+				$content = ent2ncr(convert_chars($content)); //Some RSS filtering
+			}
+		}
+		return $content;
 	}
 	
 	function the_content( $content ){
@@ -47,14 +109,14 @@ class EM_Event_Post {
 			}else{
 				if( get_option('dbem_cp_events_formats') && !post_password_required() ){
 					$EM_Event = em_get_event($post);
-					//general defaults
-					$args = array(				
-						'owner' => false,
-						'pagination' => 1
-					);
 					ob_start();
-					em_locate_template('templates/event-single.php',true, array('args'=>$args));
+					em_locate_template('templates/event-single.php',true);
 					$content = ob_get_clean();
+				}elseif( !post_password_required() ){
+					$EM_Event = em_get_event($post);
+					if( $EM_Event->event_rsvp ){
+					    $content .= $EM_Event->output('<h2>Bookings</h2>#_BOOKINGFORM');
+					}
 				}
 			}
 		}
@@ -72,6 +134,19 @@ class EM_Event_Post {
 			}
 		}
 		return $the_date;
+	}
+	
+	function the_time( $the_time, $f = '' ){
+		global $post;
+		if( $post->post_type == EM_POST_TYPE_EVENT ){
+			$EM_Event = em_get_event($post);
+			if ( '' == $f ){
+				$the_time = date(get_option('time_format'), $EM_Event->start);
+			}else{
+				$the_time = date($f, $EM_Event->start);
+			}
+		}
+		return $the_time;
 	}
 	
 	function the_category( $thelist, $separator = '', $parents='' ){
@@ -128,13 +203,19 @@ class EM_Event_Post {
 		return $thelist;
 	}
 	
-	function parse_query( ){
-		global $wp_query;
+	function parse_query(){
+	    global $wp_query;
 		//Search Query Filtering
 		if( !is_admin() ){
 			if( !empty($wp_query->query_vars['s']) && !get_option('dbem_cp_events_search_results') ){
 				$wp_query->query_vars['post_type'] = array_diff( get_post_types(array('exclude_from_search' => false)), array(EM_POST_TYPE_EVENT));
 			}
+		}else{
+		    if( !empty($wp_query->query_vars[EM_TAXONOMY_CATEGORY]) && is_numeric($wp_query->query_vars[EM_TAXONOMY_CATEGORY]) ){
+		        //sorts out filtering admin-side as it searches by id
+		        $term = get_term_by('id', $wp_query->query_vars[EM_TAXONOMY_CATEGORY], EM_TAXONOMY_CATEGORY);
+		        $wp_query->query_vars[EM_TAXONOMY_CATEGORY] = ( $term !== false && !is_wp_error($term) )? $term->name:0;
+		    }
 		}
 		//Scoping
 		if( !empty($wp_query->query_vars['post_type']) && ($wp_query->query_vars['post_type'] == EM_POST_TYPE_EVENT || $wp_query->query_vars['post_type'] == 'event-recurring') && (empty($wp_query->query_vars['post_status']) || !in_array($wp_query->query_vars['post_status'],array('trash','pending','draft'))) ) {
@@ -146,7 +227,7 @@ class EM_Event_Post {
 				if( !empty($wp_query->query_vars['calendar_day']) ) $wp_query->query_vars['scope'] = $wp_query->query_vars['calendar_day'];
 				if( empty($wp_query->query_vars['scope']) ){
 					if( is_archive() ){
-						$scope = $wp_query->query_vars['scope'] = get_option('dbem_events_page_scope');
+						$scope = $wp_query->query_vars['scope'] = get_option('dbem_events_archive_scope');
 					}else{
 						$scope = $wp_query->query_vars['scope'] = 'all'; //otherwise we'll get 404s for past events
 					}
@@ -181,20 +262,22 @@ class EM_Event_Post {
 				}
 			}elseif ($scope == "today"){
 				$today = strtotime(date('Y-m-d', $time));
+				$tomorrow = strtotime(date('Y-m-d',$time+60*60*24));
 				if( get_option('dbem_events_current_are_past') && $wp_query->query_vars['post_type'] != 'event-recurring' ){
 					//date must be only today
-					$query[] = array( 'key' => '_start_ts', 'value' => $today, 'compare' => '=');
+					$query[] = array( 'key' => '_start_ts', 'value' => array($today, $tomorrow), 'compare' => 'BETWEEN');
 				}else{
-					$query[] = array( 'key' => '_start_ts', 'value' => $today, 'compare' => '<=' );
+					$query[] = array( 'key' => '_start_ts', 'value' => $tomorrow, 'compare' => '<' );
 					$query[] = array( 'key' => '_end_ts', 'value' => $today, 'compare' => '>=' );
 				}
 			}elseif ($scope == "tomorrow"){
 				$tomorrow = strtotime(date('Y-m-d',$time+60*60*24));
+				$after_tomorrow = $tomorrow + 60*60*24;
 				if( get_option('dbem_events_current_are_past') && $wp_query->query_vars['post_type'] != 'event-recurring' ){
 					//date must be only tomorrow
-					$query[] = array( 'key' => '_start_ts', 'value' => $tomorrow, 'compare' => '=');
+					$query[] = array( 'key' => '_start_ts', 'value' => array($tomorrow, $after_tomorrow), 'compare' => 'BETWEEN');
 				}else{
-					$query[] = array( 'key' => '_start_ts', 'value' => $tomorrow, 'compare' => '<=' );
+					$query[] = array( 'key' => '_start_ts', 'value' => $after_tomorrow, 'compare' => '<' );
 					$query[] = array( 'key' => '_end_ts', 'value' => $tomorrow, 'compare' => '>=' );
 				}
 			}elseif ($scope == "month"){

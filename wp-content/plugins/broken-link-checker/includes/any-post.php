@@ -265,7 +265,7 @@ class blcPostTypeOverlord {
    * @return string Modified post content.
    */
 	function hook_the_content($content){
-		global $post, $wpdb;
+		global $post, $wpdb; /** @var wpdb $wpdb */
         if ( empty($post) || !in_array($post->post_type, $this->enabled_post_types)) {
         	return $content;
        	}
@@ -566,7 +566,7 @@ class blcAnyPostContainer extends blcContainer {
 						$this->container_id
 					)
 				);
-			};
+			}
 		}
 	}
 	
@@ -605,7 +605,7 @@ class blcAnyPostContainer extends blcContainer {
 					$this->container_id
 				)
 			);
-		};
+		}
 	}
 	
 	/**
@@ -741,5 +741,3 @@ class blcAnyPostContainerManager extends blcContainerManager {
 		return sprintf($delete_msg, $n, $type_name);
 	}
 }
-
-?>

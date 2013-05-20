@@ -1,81 +1,52 @@
 <?php
 /* @var $EM_Event EM_Event */
 global $EM_Event;
-
-//send headers
-header('Content-type: text/calendar; charset=utf-8');
-header('Content-Disposition: inline; filename="'.$EM_Event->event_slug.'.ics"');
 		
-$description_format = str_replace ( ">", "&gt;", str_replace ( "<", "&lt;", get_option ( 'dbem_ical_description_format' ) ) );		
-$blog_desc = ent2ncr(convert_chars(strip_tags(get_bloginfo()))) . " - " . __('Calendar','dbem');
+$description_format = str_replace ( ">", "&gt;", str_replace ( "<", "&lt;", get_option ( 'dbem_ical_description_format' ) ) );
 			
-echo "BEGIN:VCALENDAR
+$output = "BEGIN:VCALENDAR
 VERSION:2.0
-METHOD:PUBLISH
-CALSCALE:GREGORIAN
-PRODID:-//Events Manager//1.0//EN
-X-WR-CALNAME:{$blog_desc}";
+PRODID:-//wp-events-plugin.com//".EM_VERSION."//EN"."\n";
+echo preg_replace("/([^\r])\n/", "$1\r\n", $output);
 
-$description = $EM_Event->output($description_format,'ical');
-$description = str_replace("\\","\\\\",ent2ncr(convert_chars(strip_tags($description))));
-//$description = str_replace('"','DQUOTE',$description);
-$description = str_replace(';','\;',$description);
-$description = str_replace(',','\,',$description);
-
-if($EM_Event->event_all_day && $EM_Event->event_start_date == $EM_Event->event_end_date){
-	$dateStart	= date('Ymd\T000000',$EM_Event->start - (60*60*get_option('gmt_offset')));
-	$dateEnd	= date('Ymd\T000000',$EM_Event->start + 60*60*24 - (60*60*get_option('gmt_offset')));
-}else{
-	$dateStart	= date('Ymd\THis\Z',$EM_Event->start - (60*60*get_option('gmt_offset')));
-	$dateEnd = date('Ymd\THis\Z',$EM_Event->end - (60*60*get_option('gmt_offset')));
-}
-$dateModified = date('Ymd\THis\Z', $EM_Event->modified);			
-
-$location		= $EM_Event->output('#_LOCATION');
-$location		= str_replace(',','\,',ent2ncr(convert_chars(strip_tags($location))));
-//$location = str_replace('"','DQUOTE',$location);
-$location = str_replace(';','\;',$location);
-$location = str_replace(',','\,',$location);
-
-$locations = array();
-foreach($EM_Event->get_categories() as $EM_Category){
-	$locations[] = $EM_Category->name;
-}
+	//calculate the times along with timezone offsets
+	if($EM_Event->event_all_day){
+		$dateStart	= ';VALUE=DATE:'.date('Ymd',$EM_Event->start); //all day
+		$dateEnd	= ';VALUE=DATE:'.date('Ymd',$EM_Event->end + 86400); //add one day
+	}else{
+		$dateStart	= ':'.get_gmt_from_date(date('Y-m-d H:i:s', $EM_Event->start), 'Ymd\THis\Z');
+		$dateEnd = ':'.get_gmt_from_date(date('Y-m-d H:i:s', $EM_Event->end), 'Ymd\THis\Z');
+	}
+	if( !empty($EM_Event->event_date_modified) && $EM_Event->event_date_modified != '0000-00-00 00:00:00' ){
+		$dateModified =  get_gmt_from_date($EM_Event->event_date_modified, 'Ymd\THis\Z');
+	}else{
+	    $dateModified = get_gmt_from_date($EM_Event->post_modified, 'Ymd\THis\Z');
+	}
 	
-//FIXME we need a modified date for events
-$UID = sprintf( '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-        // 32 bits for "time_low"
-        mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff ),
-
-        // 16 bits for "time_mid"
-        mt_rand( 0, 0xffff ),
-
-        // 16 bits for "time_hi_and_version",
-        // four most significant bits holds version number 4
-        mt_rand( 0, 0x0fff ) | 0x4000,
-
-        // 16 bits, 8 bits for "clk_seq_hi_res",
-        // 8 bits for "clk_seq_low",
-        // two most significant bits holds zero and one for variant DCE1.1
-        mt_rand( 0, 0x3fff ) | 0x8000,
-
-        // 48 bits for "node"
-        mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff ), mt_rand( 0, 0xffff )
-    );
-echo "
+	//Formats
+	$description = $EM_Event->output($description_format,'ical');
+	$description = str_replace("\\","\\\\",strip_tags($description));
+	$description = str_replace(';','\;',$description);
+	$description = str_replace(',','\,',$description);
+	
+	$location = $EM_Event->output('#_LOCATION', 'ical');
+	$location = str_replace("\\","\\\\",strip_tags($location));
+	$location = str_replace(';','\;',$location);
+	$location = str_replace(',','\,',$location);
+	
+	$locations = array();
+	foreach($EM_Event->get_categories() as $EM_Category){
+		$locations[] = $EM_Category->name;
+	}
+	
+$output = "
 BEGIN:VEVENT
-UID:{$UID}
-DTSTART:{$dateStart}
-DTEND:{$dateEnd}
+DTSTART{$dateStart}
+DTEND{$dateEnd}
 DTSTAMP:{$dateModified}
 SUMMARY:{$description}
 LOCATION:{$location}
 URL:{$EM_Event->output('#_EVENTURL')}
-END:VEVENT";
-//removed these
-/*
-CATEGORIES:".implode('\,',str_replace(',','\,',$categories))."
-ORGANIZER:MAILTO:{$EM_Event->get_contact()->user_email}
-*/
-echo "
+END:VEVENT
 END:VCALENDAR";
+echo preg_replace("/([^\r])\n/", "$1\r\n", $output);
