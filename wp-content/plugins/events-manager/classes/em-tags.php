@@ -42,7 +42,7 @@ class EM_Tags extends EM_Object implements Iterator{
 				}
 			}
 		//array of EM_Tag ids
-		}elseif( is_array($data) && $this->array_is_numeric($data) ){
+		}elseif( is_array($data) && self::array_is_numeric($data) ){
 			foreach($data as $tag_id){
 				$this->tags[$tag_id] =  new EM_Tag($tag_id);
 			}
@@ -59,14 +59,14 @@ class EM_Tags extends EM_Object implements Iterator{
 	
 	/* experimental, not tested! */
 	function get_post(){
-		$this->ms_global_switch();
+		self::ms_global_switch();
 		$this->tags = array();
-		if(!empty($_POST['event_tags']) && $this->array_is_numeric($_POST['event_tags'])){
+		if(!empty($_POST['event_tags']) && self::array_is_numeric($_POST['event_tags'])){
 			foreach( $_POST['event_tags'] as $term ){
 				$this->tags[$term] = new EM_Tag($term);
 			}
 		}
-		$this->ms_global_switch_back();
+		self::ms_global_switch_back();
 		do_action('em_tags_get_post', $this);
 	}
 
@@ -121,6 +121,10 @@ class EM_Tags extends EM_Object implements Iterator{
 	public static function output( $args ){
 		global $EM_Tag;
 		$EM_Tag_old = $EM_Tag; //When looping, we can replace EM_Tag global with the current event in the loop
+		//get page number if passed on by request (still needs pagination enabled to have effect)
+		if( !empty($args['pagination']) && !array_key_exists('page',$args) && !empty($_REQUEST['pno']) && is_numeric($_REQUEST['pno']) ){
+			$page = $args['page'] = $_REQUEST['pno'];
+		}
 		//Can be either an array for the get search or an array of EM_Tag objects
 		if( is_object(current($args)) && get_class((current($args))) == 'EM_Tag' ){
 			$func_args = func_get_args();
@@ -135,10 +139,11 @@ class EM_Tags extends EM_Object implements Iterator{
 			$limit = ( !empty($args['limit']) && is_numeric($args['limit']) ) ? $args['limit']:false;
 			$offset = ( !empty($args['offset']) && is_numeric($args['offset']) ) ? $args['offset']:0;
 			$page = ( !empty($args['page']) && is_numeric($args['page']) ) ? $args['page']:1;
-			$args['limit'] = false;
-			$args['offset'] = false;
-			$args['page'] = false;
+			$args['limit'] = $args['offset'] = $args['page'] = false; //we count overall tags here
 			$tags = self::get( $args );
+			$args['limit'] = $limit;
+			$args['offset'] = $offset;
+			$args['page'] = $page;
 		}
 		//What format shall we output this to, or use default
 		$format = ( $args['format'] == '' ) ? get_option( 'dbem_tags_list_item_format' ) : $args['format'] ;
@@ -166,10 +171,7 @@ class EM_Tags extends EM_Object implements Iterator{
 			}
 			//Pagination (if needed/requested)
 			if( !empty($args['pagination']) && !empty($limit) && $tags_count >= $limit ){
-				//Show the pagination links (unless there's less than 10 events, or the custom limit)
-				$page_link_template = preg_replace('/(&|\?)pno=\d+/i','',$_SERVER['REQUEST_URI']);
-				$page_link_template = em_add_get_params($page_link_template, array('pno'=>'%PAGE%'), false); //don't html encode, so em_paginate does its thing
-				$output .= apply_filters('em_events_output_pagination', em_paginate( $page_link_template, $tags_count, $limit, $page), $page_link_template, $tags_count, $limit, $page);
+				$output .= self::get_pagination_links($args, $tags_count);
 			}
 		} else {
 			$output = get_option ( 'dbem_no_tags_message' );
@@ -177,6 +179,21 @@ class EM_Tags extends EM_Object implements Iterator{
 		//FIXME check if reference is ok when restoring object, due to changes in php5 v 4
 		$EM_Tag_old= $EM_Tag;
 		return apply_filters('em_tags_output', $output, $tags, $args);		
+	}
+	
+	public static function get_pagination_links($args, $count, $search_action = 'search_tags', $default_args = array()){
+		//get default args if we're in a search, supply to parent since we can't depend on late static binding until WP requires PHP 5.3 or later
+		if( empty($default_args) && (!empty($args['ajax']) || !empty($_REQUEST['action']) && $_REQUEST['action'] == $search_action) ){ 
+			$default_args = self::get_default_search();
+			$default_args['limit'] = get_option('dbem_tags_default_limit');
+		}
+		return parent::get_pagination_links($args, $count, $search_action, $default_args);
+	}
+	
+	public static function get_post_search($args = array(), $filter = false, $request = array(), $accepted_args = array()){
+		//supply $accepted_args to parent argument since we can't depend on late static binding until WP requires PHP 5.3 or later
+		$accepted_args = !empty($accepted_args) ? $accepted_args : array_keys(self::get_default_search());
+		return apply_filters('em_tags_get_post_search', parent::get_post_search($args, $filter, $request, $accepted_args));
 	}
 	
 	function has( $search ){
@@ -223,11 +240,12 @@ class EM_Tags extends EM_Object implements Iterator{
 	
 	/* 
 	 * Adds custom tags search defaults
+	 * @param array $array_or_defaults may be the array to override defaults
 	 * @param array $array
 	 * @return array
 	 * @uses EM_Object#get_default_search()
 	 */
-	function get_default_search( $array = array() ){
+	public static function get_default_search( $array_or_defaults = array(), $array = array() ){
 		$defaults = array(
 			//added from get_terms, so they don't get filtered out
 			'orderby' => get_option('dbem_tags_default_orderby', 'name'), 'order' => get_option('dbem_tags_default_order', 'name'),
@@ -236,6 +254,12 @@ class EM_Tags extends EM_Object implements Iterator{
 			'hierarchical' => true, 'child_of' => 0, 'get' => '', 'name__like' => '',
 			'pad_counts' => false, 'offset' => '', 'search' => '', 'cache_domain' => 'core'		
 		);
+		//sort out whether defaults were supplied or just the array of search values
+		if( empty($array) ){
+			$array = $array_or_defaults;
+		}else{
+			$defaults = array_merge($defaults, $array_or_defaults);
+		}
 		return apply_filters('em_tags_get_default_search', parent::get_default_search($defaults,$array), $array, $defaults);
 	}
 

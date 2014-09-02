@@ -1,9 +1,8 @@
 <?php
 class EM_Tag_Taxonomy{
-	function init(){
+	public static function init(){
 		if( !is_admin() ){
-			add_filter('archive_template', array('EM_Tag_Taxonomy','template'));
-			add_filter('category_template', array('EM_Tag_Taxonomy','template'));
+			add_filter('taxonomy_template', array('EM_Tag_Taxonomy','template'), 99);
 			add_filter('parse_query', array('EM_Tag_Taxonomy','parse_query'));
 		}
 	}
@@ -12,19 +11,19 @@ class EM_Tag_Taxonomy{
 	 * @param string $template
 	 * @return string
 	 */
-	function template($template){
+	public static function template($template){
 		global $wp_query, $EM_Tag, $em_tag_id, $post;
 		if( is_tax(EM_TAXONOMY_TAG) && get_option('dbem_cp_tags_formats', true)){
 			$EM_Tag = em_get_tag($wp_query->queried_object->term_id);
 			if( get_option('dbem_tags_page') ){
 			    //less chance for things to go wrong with themes etc. so just reset the WP_Query to think it's a page rather than taxonomy
 				$wp_query = new WP_Query(array('page_id'=> get_option('dbem_tags_page')));
+				$wp_query->queried_object = $wp_query->post;
+				$wp_query->queried_object_id = $wp_query->post->ID;
 				$wp_query->post->post_title = $wp_query->posts[0]->post_title = $wp_query->queried_object->post_title = $EM_Tag->output(get_option('dbem_tag_page_title_format'));
 				if( !function_exists('yoast_breadcrumb') ){ //not needed by WP SEO Breadcrumbs
 					$wp_query->post->post_parent = $wp_query->posts[0]->post_parent = $wp_query->queried_object->post_parent = $EM_Tag->output(get_option('dbem_tags_page'));
 				}
-				$wp_query->queried_object = $wp_query->post;
-				$wp_query->queried_object_id = $wp_query->post->ID;
 				$post = $wp_query->post;
 			}else{
 				$wp_query->em_tag_id = $em_tag_id = $EM_Tag->term_id; //we assign $em_tag_id just in case other themes/plugins do something out of the ordinary to WP_Query
@@ -55,17 +54,20 @@ class EM_Tag_Taxonomy{
 		return $template;
 	}
 	
-	function the_content($content){
+	public static function the_content($content){
 		global $wp_query, $EM_Tag, $post, $em_tag_id;
-		if( !empty($wp_query->em_tag_id) || ($post->ID == get_option('dbem_tags_page') && !empty($em_tag_id)) ){
+		$is_tags_page = $post->ID == get_option('dbem_tags_page');
+		$tag_flag = (!empty($wp_query->em_tag_id) || !empty($em_tag_id));
+		if( ($is_tags_page && $tag_flag) || (empty($post->ID) && $tag_flag) ){
 			$EM_Tag = empty($wp_query->em_tag_id) ? em_get_tag($em_tag_id):em_get_tag($wp_query->em_tag_id);
 			ob_start();
 			em_locate_template('templates/tag-single.php',true);
 			return ob_get_clean();
 		}
+		return $content;
 	}
 	
-	function parse_query(){
+	public static function parse_query(){
 	    global $wp_query, $post;
 		if( is_tax(EM_TAXONOMY_TAG) ){
 			//Scope is future
@@ -87,7 +89,7 @@ class EM_Tag_Taxonomy{
 		}
 	}
 	
-	function wpseo_breadcrumb_links( $links ){
+	public static function wpseo_breadcrumb_links( $links ){
 	    global $wp_query;
 	    array_pop($links);
 	    if( get_option('dbem_tags_page') ){

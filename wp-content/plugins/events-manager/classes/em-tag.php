@@ -66,12 +66,32 @@ class EM_Tag extends EM_Object {
 	
 	function get_url(){
 		if( empty($this->link) ){
-			$this->ms_global_switch();
+			self::ms_global_switch();
 			$this->link = get_term_link($this->slug, EM_TAXONOMY_TAG);
-			$this->ms_global_switch_back();
+			self::ms_global_switch_back();
 			if ( is_wp_error($this->link) ) $this->link = '';
 		}
-		return $this->link;
+		return apply_filters('em_tag_get_url', $this->link);
+	}
+
+	function get_ical_url(){
+		global $wp_rewrite;
+		if( !empty($wp_rewrite) && $wp_rewrite->using_permalinks() ){
+			$return = trailingslashit($this->get_url()).'ical/';
+		}else{
+			$return = em_add_get_params($this->get_url(), array('ical'=>1));
+		}
+		return apply_filters('em_tag_get_ical_url', $return);
+	}
+
+	function get_rss_url(){
+		global $wp_rewrite;
+		if( !empty($wp_rewrite) && $wp_rewrite->using_permalinks() ){
+			$return = trailingslashit($this->get_url()).'feed/';
+		}else{
+			$return = em_add_get_params($this->get_url(), array('feed'=>1));
+		}
+		return apply_filters('em_tag_get_rss_url', $return);
 	}
 	
 	function output_single($target = 'html'){
@@ -105,6 +125,20 @@ class EM_Tag extends EM_Object {
 					$link = $this->get_url();
 					$replace = ($result == '#_TAGURL') ? $link : '<a href="'.$link.'">'.esc_html($this->name).'</a>';
 					break;
+				case '#_TAGICALURL':
+				case '#_TAGICALLINK':
+					$replace = $this->get_ical_url();
+					if( $result == '#_TAGICALLINK' ){
+						$replace = '<a href="'.esc_url($replace).'">iCal</a>';
+					}
+					break;
+				case '#_TAGRSSURL':
+				case '#_TAGRSSLINK':
+					$replace = $this->get_rss_url();
+					if( $result == '#_TAGRSSLINK' ){
+						$replace = '<a href="'.esc_url($replace).'">RSS</a>';
+					}
+					break;
 				case '#_TAGEVENTSPAST': //depreciated, erroneous documentation, left for compatability
 				case '#_TAGEVENTSNEXT': //depreciated, erroneous documentation, left for compatability
 				case '#_TAGEVENTSALL': //depreciated, erroneous documentation, left for compatability
@@ -121,7 +155,7 @@ class EM_Tag extends EM_Object {
 					else{ $scope = 'all'; }
 					$events_count = EM_Events::count( array('tag'=>$this->term_id, 'scope'=>$scope) );
 					if ( $events_count > 0 ){
-					    $args = array('tag'=>$this->term_id, 'scope'=>$scope, 'pagination'=>1);
+					    $args = array('tag'=>$this->term_id, 'scope'=>$scope, 'pagination'=>1, 'ajax'=>0);
 					    $args['format_header'] = get_option('dbem_tag_event_list_item_header_format');
 					    $args['format_footer'] = get_option('dbem_tag_event_list_item_footer_format');
 					    $args['format'] = get_option('dbem_tag_event_list_item_format');
@@ -129,7 +163,7 @@ class EM_Tag extends EM_Object {
 						$args['page'] = (!empty($_REQUEST['pno']) && is_numeric($_REQUEST['pno']) )? $_REQUEST['pno'] : 1;
 					    $replace = EM_Events::output($args);
 					} else {
-						$replace = get_option('dbem_tag_no_events_message','</ul>');
+						$replace = get_option('dbem_tag_no_events_message');
 					}
 					break;
 				case '#_TAGNEXTEVENT':

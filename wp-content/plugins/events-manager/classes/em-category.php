@@ -43,7 +43,7 @@ class EM_Category extends EM_Object {
 	 */
 	function EM_Category( $category_data = false ) {
 		global $wpdb;
-		$this->ms_global_switch();
+		self::ms_global_switch();
 		//Initialize
 		$category = array();
 		if( !empty($category_data) ){
@@ -52,6 +52,9 @@ class EM_Category extends EM_Object {
 				$category = $category_data;
 			}elseif( !is_numeric($category_data) ){
 				$category = get_term_by('slug', $category_data, EM_TAXONOMY_CATEGORY);
+				if( !$category ){
+					$category = get_term_by('name', $category_data, EM_TAXONOMY_CATEGORY);				    
+				}
 			}else{		
 				$category = get_term_by('id', $category_data, EM_TAXONOMY_CATEGORY);
 			}
@@ -62,7 +65,7 @@ class EM_Category extends EM_Object {
 			}
 		}
 		$this->id = $this->term_id; //backward compatability
-		$this->ms_global_switch_back();
+		self::ms_global_switch_back();
 		do_action('em_category',$this, $category_data);
 	}
 	
@@ -70,12 +73,12 @@ class EM_Category extends EM_Object {
 		if( empty($this->color) ){
 			global $wpdb;
 			$color = $wpdb->get_var('SELECT meta_value FROM '.EM_META_TABLE." WHERE object_id='{$this->term_id}' AND meta_key='category-bgcolor' LIMIT 1");
-			$this->color = ($color != '') ? $color:'#FFFFFF';
+			$this->color = ($color != '') ? $color:get_option('dbem_category_default_color', '#FFFFFF');
 		}
 		return $this->color;
 	}
 	
-	function get_image_url(){
+	function get_image_url( $size = 'full' ){
 		if( empty($this->image_url) ){
 			global $wpdb;
 			$image_url = $wpdb->get_var('SELECT meta_value FROM '.EM_META_TABLE." WHERE object_id='{$this->term_id}' AND meta_key='category-image' LIMIT 1");
@@ -95,12 +98,32 @@ class EM_Category extends EM_Object {
 	
 	function get_url(){
 		if( empty($this->link) ){
-			$this->ms_global_switch();
+			self::ms_global_switch();
 			$this->link = get_term_link($this->slug, EM_TAXONOMY_CATEGORY);
-			$this->ms_global_switch_back();
+			self::ms_global_switch_back();
 			if ( is_wp_error($this->link) ) $this->link = '';
 		}
-		return $this->link;
+		return apply_filters('em_category_get_url', $this->link);
+	}
+
+	function get_ical_url(){
+		global $wp_rewrite;
+		if( !empty($wp_rewrite) && $wp_rewrite->using_permalinks() ){
+			$return = trailingslashit($this->get_url()).'ical/';
+		}else{
+			$return = em_add_get_params($this->get_url(), array('ical'=>1));
+		}
+		return apply_filters('em_category_get_ical_url', $return);
+	}
+
+	function get_rss_url(){
+		global $wp_rewrite;
+		if( !empty($wp_rewrite) && $wp_rewrite->using_permalinks() ){
+			$return = trailingslashit($this->get_url()).'feed/';
+		}else{
+			$return = em_add_get_params($this->get_url(), array('feed'=>1));
+		}
+		return apply_filters('em_category_get_rss_url', $return);
 	}
 	
 	/**
@@ -152,12 +175,12 @@ class EM_Category extends EM_Object {
 								$replace = "<img src='".esc_url($this->get_image_url())."' alt='".esc_attr($this->name)."'/>";
 							}else{
 								$image_size = explode(',', $placeholders[3][$key]);
-								if( $this->array_is_numeric($image_size) && count($image_size) > 1 ){
+								if( self::array_is_numeric($image_size) && count($image_size) > 1 ){
 								    if( get_option('dbem_disable_timthumb') && $this->get_image_id() ){
 								        //since we previously didn't store image ids along with the url to the image (since taxonomies don't allow normal featured images), sometimes we won't be able to do this, which is why we check there's a valid image id first
-								    	$this->ms_global_switch();
+								    	self::ms_global_switch();
 								    	$replace = wp_get_attachment_image($this->get_image_id(), $image_size);
-								    	$this->ms_global_switch_back();
+								    	self::ms_global_switch_back();
 								    }else{
 										$width = ($image_size[0]) ? 'width="'.esc_attr($image_size[0]).'"':'';
 										$height = ($image_size[1]) ? 'height="'.esc_attr($image_size[1]).'"':'';
@@ -178,6 +201,20 @@ class EM_Category extends EM_Object {
 					$link = $this->get_url();
 					$replace = ($result == '#_CATEGORYURL') ? $link : '<a href="'.$link.'">'.esc_html($this->name).'</a>';
 					break;
+				case '#_CATEGORYICALURL':
+				case '#_CATEGORYICALLINK':
+					$replace = $this->get_ical_url();
+					if( $result == '#_CATEGORYICALLINK' ){
+						$replace = '<a href="'.esc_url($replace).'">iCal</a>';
+					}
+					break;
+				case '#_CATEGORYRSSURL':
+				case '#_CATEGORYRSSLINK':
+					$replace = $this->get_rss_url();
+					if( $result == '#_CATEGORYRSSLINK' ){
+						$replace = '<a href="'.esc_url($replace).'">RSS</a>';
+					}
+					break;
 				case '#_CATEGORYSLUG':
 					$replace = $this->slug;
 					break;
@@ -197,7 +234,7 @@ class EM_Category extends EM_Object {
 					else{ $scope = 'all'; }					
 					$events_count = EM_Events::count( array('category'=>$this->term_id, 'scope'=>$scope) );
 					if ( $events_count > 0 ){
-					    $args = array('category'=>$this->term_id, 'scope'=>$scope, 'pagination'=>1);
+					    $args = array('category'=>$this->term_id, 'scope'=>$scope, 'pagination'=>1, 'ajax'=>0);
 					    $args['format_header'] = get_option('dbem_category_event_list_item_header_format');
 					    $args['format_footer'] = get_option('dbem_category_event_list_item_footer_format');
 					    $args['format'] = get_option('dbem_category_event_list_item_format');
@@ -228,7 +265,7 @@ class EM_Category extends EM_Object {
 		return apply_filters('em_category_output', $category_string, $this, $format, $target);	
 	}
 	
-	function can_manage( $capability_owner = 'edit_categories', $capability_admin = false ){
+	function can_manage( $capability_owner = 'edit_categories', $capability_admin = false, $user_to_check = false ){
 		global $em_capabilities_array;
 		//Figure out if this is multisite and require an extra bit of validation
 		$multisite_check = true;

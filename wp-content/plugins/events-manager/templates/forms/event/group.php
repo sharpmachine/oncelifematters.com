@@ -11,7 +11,7 @@ if( !is_super_admin() ){
 	}
 	$group_count = count($user_groups);
 }else{
-    $groups = groups_get_groups(array('show_hidden'=>true));
+    $groups = groups_get_groups(array('show_hidden'=>true, 'per_page'=>0));
     $user_groups = $groups['groups'];
 	$group_count = $groups['total'];
 }
@@ -19,7 +19,7 @@ if( count($user_groups) > 0 ){
 	?>
 	<p>
 	<select name="group_id">
-		<option value="<?php echo $BP_Group->id; ?>"><?php _e('Not a Group Event', 'dbem'); ?></option>
+		<option value=""><?php _e('Not a Group Event', 'dbem'); ?></option>
 		<?php
 		//in case user isn't a group mod, but can edit other users' events
 		if( !empty($EM_Event->group_id) && !in_array($EM_Event->group_id, $group_data['groups']) ){

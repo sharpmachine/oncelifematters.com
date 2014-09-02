@@ -9,57 +9,68 @@
  * @package shopp
  **/
 
+defined( 'WPINC' ) || header( 'HTTP/1.1 403' ) & exit; // Prevent direct access
+
 if ( class_exists('WP_Widget') && ! class_exists('ShoppAccountWidget') ) {
 
-class ShoppAccountWidget extends WP_Widget {
+	class ShoppAccountWidget extends WP_Widget {
 
-    function ShoppAccountWidget() {
-        parent::WP_Widget(false,
-			$name = __('Shopp Account','Shopp'),
-			array('description' => __('Account login &amp; management','Shopp'))
-		);
-    }
+	    function __construct() {
 
-    function widget($args, $options) {
-		global $Shopp;
-		if (!empty($args)) extract($args);
+			if ( 'none' == shopp_setting('account_system') ) {
+				return parent::__construct(
+					'shopp-order-lookup',
+					__('Shopp Order Lookup','Shopp'),
+					array('description' => __('Lookup orders by order number and email','Shopp'))
+				);
+			}
 
-		if (empty($options['title'])) $options['title'] = __('Your Account','Shopp');
-		$title = $before_title.$options['title'].$after_title;
-		$request = $_GET;
-		unset($_GET['acct']);
-		unset($_GET['id']);
-		remove_filter('shopp_account_template','shoppdiv');
-		add_filter('shopp_show_account_errors',array(&$this,'showerrors'));
-		$sidecart = $Shopp->Flow->Controller->account_page();
+	        parent::__construct(
+				'shopp-account',
+				__('Shopp Account','Shopp'),
+				array('description' => __('Customer account management dashboard','Shopp'))
+			);
+	    }
 
-		echo $before_widget.$title.$sidecart.$after_widget;
-		$_GET = array_merge($_GET,$request);
-		remove_filter('shopp_show_account_errors',array(&$this,'showerrors'));
-		add_filter('shopp_account_template','shoppdiv');
-    }
+	    function widget($args, $options) {
+			if (!empty($args)) extract($args);
 
-    function update($new_instance, $old_instance) {
-        return $new_instance;
-    }
+			$loggedin = ShoppCustomer()->loggedin();
+			// Hide login form on account page when not logged in to prevent duplicate forms
+			if (is_account_page() && !$loggedin) return '';
 
-	function showerrors () {
-		return false;
-	}
+			$defaults = array(
+				'title' => $loggedin?__('Your Account','Shopp'):__('Login','Shopp'),
+			);
+			$options = array_merge($defaults,$options);
+			extract($options);
 
-    function form($options) {
-		?>
-		<p><label for="<?php echo $this->get_field_id('title'); ?>"><?php _e('Title'); ?></label>
-		<input type="text" name="<?php echo $this->get_field_name('title'); ?>" id="<?php echo $this->get_field_id('title'); ?>" class="widefat" value="<?php echo $options['title']; ?>"></p>
-		<?php
-    }
+			$title = $before_title.$title.$after_title;
 
-} // END class ShoppAccountWidget
 
-global $Shopp;
-if ($Shopp->Settings->get('account_system') == "none") return;
+			remove_filter('shopp_show_account_errors',array($this,'showerrors'));
+			$Page = new ShoppAccountPage();
 
-register_widget('ShoppAccountWidget');
+			$menu = $Page->content('','widget');
+			echo $before_widget.$title.$menu.$after_widget;
+
+	    }
+
+	    function update($new_instance, $old_instance) {
+	        return $new_instance;
+	    }
+
+		function showerrors () {
+			return false;
+		}
+
+	    function form($options) {
+			?>
+			<p><label for="<?php echo $this->get_field_id('title'); ?>"><?php _e('Title'); ?></label>
+			<input type="text" name="<?php echo $this->get_field_name('title'); ?>" id="<?php echo $this->get_field_id('title'); ?>" class="widefat" value="<?php echo $options['title']; ?>"></p>
+			<?php
+	    }
+
+	} // END class ShoppAccountWidget
 
 }
-?>

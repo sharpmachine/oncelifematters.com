@@ -24,6 +24,16 @@ class EM_Bookings extends EM_Object implements Iterator{
 	 * @var int
 	 */
 	var $spaces;
+	/**
+	 * If flag is true, a registration will be attempted when booking whether the user is logged in or not. Used in cases such as manual bookings (a Pro feature) and should only be enabled during manipulation by an event admin.
+	 * @var unknown
+	 */
+	public static $force_registration;
+	/**
+	 * If flag is true, bookings and forms will not impose restrictions for roles. Future iterations will remove restrictions on dates, space capacity, etc. This is mainly for use by event admins such as for a manual booking (a Pro feature). 
+	 * @var bool
+	 */
+	public static $disable_restrictions = false;
 	
 	/**
 	 * Creates an EM_Bookings instance, currently accepts an EM_Event object (gets all bookings for that event) or array of any EM_Booking objects, which can be manipulated in bulk with helper functions.
@@ -123,15 +133,15 @@ class EM_Bookings extends EM_Object implements Iterator{
 			return $EM_Event;
 		}else{
 			if( is_numeric($this->event_id) && $this->event_id > 0 ){
-				return new EM_Event($this->event_id, 'event_id');
+				return em_get_event($this->event_id, 'event_id');
 			}elseif( count($this->bookings) > 0 ){
 				foreach($this->bookings as $EM_Booking){
 					/* @var $EM_Booking EM_Booking */
-					return new EM_Event($EM_Booking->event_id, 'event_id');
+					return em_get_event($EM_Booking->event_id, 'event_id');
 				}
 			}
 		}
-		return new EM_Event($this->event_id);
+		return em_get_event($this->event_id, 'event_id');
 	}
 	
 	/**
@@ -142,6 +152,12 @@ class EM_Bookings extends EM_Object implements Iterator{
 	function get_tickets( $force_reload = false ){
 		if( !is_object($this->tickets) || $force_reload ){
 			$this->tickets = new EM_Tickets($this->event_id);
+			if( get_option('dbem_bookings_tickets_single') && count($this->tickets->tickets) == 1 && !empty($this->get_event()->rsvp_end) ){
+		    	$EM_Ticket = $this->tickets->get_first();
+		    	$EM_Event = $this->get_event();
+				$EM_Ticket->ticket_end = $EM_Event->event_rsvp_date." ".$EM_Event->event_rsvp_time;
+				$EM_Ticket->end_timestamp = $EM_Event->rsvp_end;
+			}
 		}else{
 			$this->tickets->event_id = $this->event_id;
 		}
@@ -150,13 +166,14 @@ class EM_Bookings extends EM_Object implements Iterator{
 	
 	/**
 	 * Returns EM_Tickets object with available tickets
+	 * @param boolean $include_member_tickets - if set to true, member-ony tickets will be considered available even if logged out
 	 * @return EM_Tickets
 	 */
-	function get_available_tickets(){
+	function get_available_tickets( $include_member_tickets = false ){
 		$tickets = array();
 		foreach ($this->get_tickets() as $EM_Ticket){
 			/* @var $EM_Ticket EM_Ticket */
-			if( $EM_Ticket->is_available() ){
+			if( $EM_Ticket->is_available($include_member_tickets) ){
 				//within time range
 				if( $EM_Ticket->get_available_spaces() > 0 ){
 					$tickets[] = $EM_Ticket;
@@ -164,7 +181,7 @@ class EM_Bookings extends EM_Object implements Iterator{
 			}
 		}
 		$EM_Tickets = new EM_Tickets($tickets);
-		return apply_filters('em_bookings_get_tickets', $EM_Tickets, $this);
+		return apply_filters('em_bookings_get_available_tickets', $EM_Tickets, $this);
 	}
 	
 	function get_user_list(){
@@ -189,8 +206,8 @@ class EM_Bookings extends EM_Object implements Iterator{
 		return apply_filters('em_bookings_ticket_exists',false, false,$this);
 	}
 	
-	function has_space(){
-		return count($this->get_available_tickets()->tickets) > 0;
+	function has_space( $include_member_tickets = false ){
+		return count($this->get_available_tickets( $include_member_tickets )->tickets) > 0;
 	}
 	
 	function has_open_time(){
@@ -204,10 +221,10 @@ class EM_Bookings extends EM_Object implements Iterator{
 	    return $return;
 	}
 	
-	function is_open(){
+	function is_open($include_member_tickets = false){
 		//TODO extend booking options
-		$return = $this->has_open_time() && $this->has_space();
-		return apply_filters('em_bookings_is_open', $return, $this);
+		$return = $this->has_open_time() && $this->has_space($include_member_tickets);
+		return apply_filters('em_bookings_is_open', $return, $this, $include_member_tickets);
 	}
 	
 	/**
@@ -267,7 +284,7 @@ class EM_Bookings extends EM_Object implements Iterator{
 	 */
 	function set_status($status, $booking_ids){
 		//FIXME status should work with instantiated object
-		if( $this->array_is_numeric($booking_ids) ){
+		if( self::array_is_numeric($booking_ids) ){
 			//Get all the bookings
 			$results = array();
 			$mails = array();
@@ -461,7 +478,7 @@ class EM_Bookings extends EM_Object implements Iterator{
 	 * @return array 
 	 * @static
 	 */
-	function get( $args = array(), $count = false ){
+	public static function get( $args = array(), $count = false ){
 		global $wpdb,$current_user;
 		$bookings_table = EM_BOOKINGS_TABLE;
 		$events_table = EM_EVENTS_TABLE;
@@ -497,7 +514,7 @@ class EM_Bookings extends EM_Object implements Iterator{
 		$accepted_fields = $EM_Booking->get_fields(true);
 		$orderby = self::build_sql_orderby($args, $accepted_fields);
 		//Now, build orderby sql
-		$orderby_sql = ( count($orderby) > 0 ) ? 'ORDER BY '. implode(', ', $orderby) : '';
+		$orderby_sql = ( count($orderby) > 0 ) ? 'ORDER BY '. implode(', ', $orderby) : 'ORDER BY booking_date';
 		//Selector
 		$selectors = ( $count ) ?  'COUNT(*)':'*';
 		
@@ -531,7 +548,7 @@ class EM_Bookings extends EM_Object implements Iterator{
 		return apply_filters('em_bookings_get', $EM_Bookings);
 	}
 	
-	function count( $args = array() ){
+	public static function count( $args = array() ){
 		return self::get($args, true);
 	}
 	
@@ -556,8 +573,8 @@ class EM_Bookings extends EM_Object implements Iterator{
 	
 	static function enqueue_js(){
         if( !defined('EM_BOOKING_JS_LOADED') ){ //request loading of JS file in footer of page load
-        	add_action('wp_footer','EM_Bookings::em_booking_js_footer');
-        	add_action('admin_footer','EM_Bookings::em_booking_js_footer');
+        	add_action('wp_footer','EM_Bookings::em_booking_js_footer', 20);
+        	add_action('admin_footer','EM_Bookings::em_booking_js_footer', 20);
         	define('EM_BOOKING_JS_LOADED',true);
         }
 	}
@@ -580,10 +597,18 @@ class EM_Bookings extends EM_Object implements Iterator{
 		<?php
 	}
 	
+	/**
+	 * Checks whether a booking being made should register user information as a booking from another user whilst an admin is logged in
+	 * @return boolean
+	 */
+	public static function is_registration_forced(){
+		return ( defined('EM_FORCE_REGISTRATION') || self::$force_registration );
+	}
+	
 	/* Overrides EM_Object method to apply a filter to result
 	 * @see wp-content/plugins/events-manager/classes/EM_Object#build_sql_conditions()
 	 */
-	function build_sql_conditions( $args = array() ){
+	public static function build_sql_conditions( $args = array() ){
 		$conditions = apply_filters( 'em_bookings_build_sql_conditions', parent::build_sql_conditions($args), $args );
 		if( is_numeric($args['status']) ){
 			$conditions['status'] = 'booking_status='.$args['status'];
@@ -617,23 +642,31 @@ class EM_Bookings extends EM_Object implements Iterator{
 	/* Overrides EM_Object method to apply a filter to result
 	 * @see wp-content/plugins/events-manager/classes/EM_Object#build_sql_orderby()
 	 */
-	function build_sql_orderby( $args, $accepted_fields, $default_order = 'ASC' ){
-		return apply_filters( 'em_bookings_build_sql_orderby', parent::build_sql_orderby($args, $accepted_fields, get_option('dbem_events_default_order')), $args, $accepted_fields, $default_order );
+	public static function build_sql_orderby( $args, $accepted_fields, $default_order = 'ASC' ){
+		return apply_filters( 'em_bookings_build_sql_orderby', parent::build_sql_orderby($args, $accepted_fields, get_option('dbem_bookings_default_order','booking_date')), $args, $accepted_fields, $default_order );
 	}
 	
 	/* 
 	 * Adds custom Events search defaults
+	 * @param array $array_or_defaults may be the array to override defaults
 	 * @param array $array
 	 * @return array
 	 * @uses EM_Object#get_default_search()
 	 */
-	function get_default_search( $array = array() ){
+	public static function get_default_search( $array_or_defaults = array(), $array = array() ){
 		$defaults = array(
 			'status' => false,
 			'person' => true, //to add later, search by person's bookings...
 			'blog' => get_current_blog_id(),
 			'ticket_id' => false
-		);	
+		);
+		//sort out whether defaults were supplied or just the array of search values
+		if( empty($array) ){
+			$array = $array_or_defaults;
+		}else{
+			$defaults = array_merge($defaults, $array_or_defaults);
+		}
+		//specific functionality
 		if( true || is_admin() ){
 			//figure out default owning permissions
 			if( !current_user_can('edit_others_events') ){
